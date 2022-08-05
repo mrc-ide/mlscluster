@@ -94,7 +94,7 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 	clade_age <- max_desc_time - min_desc_time # time span of descendant tips
 	
 	# descendant nodes
-	descendants <- lapply(1:(ntip+nnode), function(t) integer(Ndesc[tp]))  # pre-allocate list to fill with node descendant IDs
+	descendants <- lapply(1:(ntip+nnode), function(tp) integer(Ndesc[tp]))  # pre-allocate list to fill with node descendant IDs
 	for(tp in 1:(ntip+nnode)) {
 		descendants[[tp]][1] <- tp
 	}
@@ -247,8 +247,8 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 	print(paste("Total time elapsed (logistic growth rate of sister clades): ",total_time,"mins"))
 }
 
-cladeScore(tre, amd, min_descendants=25, max_descendants=500, min_cluster_age_yrs=0.2/12, min_date=as.Date("2019-12-01"), 
-											max_date=as.Date("2020-06-30"),output_dir="clade_score-end2019-june2020", gen_time=7/365, threshold_ratio_sizes=2, 
+cladeScore(tre, amd, min_descendants=25, max_descendants=500, min_cluster_age_yrs=0.2/12, min_date=as.Date("2019-12-01"),
+											max_date=as.Date("2020-06-30"),output_dir="clade_score-end2019-june2020", gen_time=7/365, threshold_ratio_sizes=2,
 											threshold_ratio_persist_time=2,upper_threshold_sizes_logit_regr=3)
 
 # TODO: run for these periods (logistic regression too slow, try to parallelise maybe): 
@@ -258,7 +258,3 @@ cladeScore(tre, amd, min_descendants=25, max_descendants=500, min_cluster_age_yr
 # 2021-06-01 to 2021-12-31 (Delta + Omicron BA.1 rapidly replacing)
 # 2022-01-01 to 2022-04-30 (Omicron BA.1 + BA.2 rapidly replacing)
 # Whole tree period (not feasible now due to mem alloc issues on matrix)
-
-# saveRDS(ratio_sizes, "rds/results/ratio_sizes.rds")
-# saveRDS(ratio_time_persist, "rds/results/ratio_time_persist.rds")
-# saveRDS(logit_growth, "rds/results/logit_growth.rds")
