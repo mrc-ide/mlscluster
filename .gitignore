@@ -4,5 +4,5 @@
 .Ruserdata
 *.Rproj
 R/exercises/
-treeclust*
+clade_score*
 rds/
