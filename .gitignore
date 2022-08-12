@@ -3,6 +3,9 @@
 .RData
 .Ruserdata
 *.Rproj
+data/
 R/exercises/
 clade_score*
+test*
+OLD*
 rds/
