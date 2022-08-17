@@ -5,8 +5,7 @@
 *.Rproj
 data/
 R/exercises/
-clade_score*
+results/
 test*
-sc2*
 OLD*
 rds/
