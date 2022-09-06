@@ -4,13 +4,11 @@ ebov_md = readRDS("rds/md_ebola.rds")
 load("rds/chron_timetree_with_regional_md.RData")
 
 cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=NULL, max_date=NULL
-																							, output_dir=paste0("clade_score-",Sys.Date()), threshold_ratio_sizes=3,threshold_ratio_persist_time=3
+																							, branch_length_unit="years", output_dir=paste0("clade_score-",Sys.Date()), quantile_choice=1/10, quantile_threshold_ratio_sizes="10%", quantile_threshold_ratio_persist_time="10%"
 																							, gen_time=7/365, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995) {
 	
 	library(ape)
 	library(lubridate)
-	library(tidyr)
-	library(dplyr)
 	library(glue)
 	library(ggtree)
 	library(ggplot2)
@@ -91,19 +89,13 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 	nnode <- Nnode(tre)
 	
 	# getting 'coalescent' times
-	nde <- node.depth.edgelength(tre) # depth of a node using branch lengths
-	message("Difference between max and min sample times before applying filters")
-	message(diff_stimes)
-	#message("node.depth.edgelength max value")
-	#message(max(nde))
-	
-
-	if(max(nde) > (10 * diff_stimes)) { # since root time can be far in the past multiply by 10
-		nde <- node.depth.edgelength(tre) / 365 # (29903/(diff_stimes * 365)) 
+	if(branch_length_unit == "years") {
+		nde <- node.depth.edgelength(tre) # depth of a node using branch lengths
+	}else if(branch_length_unit == "days") {
 		tre$edge.length <- tre$edge.length / 365
-		#message("node.depth.edgelength max value after adjusting")
-		#message(max(nde))
-		#tre$edge.length <- nde[1:(ntip+nnode-1)]
+		nde <- node.depth.edgelength(tre)
+	}else {
+		stop("Choices for 'branch_length_unit' are: 'days' and 'years'")
 	}
 	rh <- max(nde[1:ntip]) # root heights
 	stimes <- nde[1:ntip]
@@ -111,6 +103,7 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 	nhs = nodeheights <- rh - nde # node heights
 	mrst <- max(sts) # most recent sample time
 	tmrca <- mrst - nhs # decimal times of coalescent events
+	hist(tmrca)
 	
 	poedges <- tre$edge[postorder(tre),] #postorder: traverse from the left subtree to the right subtree then to the root
 	preedges <- tre$edge[rev(postorder(tre)),] #preorder: traverse from the root to the left subtree then to the right subtree
@@ -126,6 +119,8 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 	max_desc_time[1:ntip] <- tlsts 
 	min_desc_time <- rep(Inf, ntip+nnode)
 	min_desc_time[1:ntip] <- tlsts
+	persistence_time <- rep(-Inf, ntip+nnode)
+	persistence_time[1:ntip] <- 0
 	
 	for (e in 1:nrow(poedges)){
 		n <- poedges[e,1] # postorder traversal of nodes column
@@ -134,8 +129,10 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 		Ndesc[n] <- Ndesc[n] + Ndesc[tp]
 		max_desc_time[n] <- max(max_desc_time[n], max_desc_time[tp])
 		min_desc_time[n] <- min(min_desc_time[n], min_desc_time[tp])
+		persistence_time[n] <- max_desc_time[n] - tmrca[n]
 	}
 	clade_age <- max_desc_time - min_desc_time # time span of descendant tips
+	#print(persistence_time)
 	
 	# ancestors
 	ancestors <- lapply(1:(ntip+nnode), function(tp) integer() )
@@ -166,7 +163,6 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 	descendant_tips <- descendants
 	# daughter nodes: direct descendants of a given node
 	daughter_nodes <- descendants
-	sisters <- daughter_nodes
 	
 	for(n in (ntip+1):(ntip+nnode)) {
 		descendant_tips[[n]] <- descendant_tips[[n]][ descendant_tips[[n]] <= ntip ]
@@ -179,7 +175,7 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 		na.omit(tre$tip.label[descendant_tips[[tp]]])
 	})
 	
-	.get_sisters_node <- function(node) {
+	.get_children_node <- function(node) {
 		sisters <- tre$edge[ tre$edge[,1] == node, 2 ]
 		sisters
 	}
@@ -207,28 +203,22 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 	
 	# ratio persistence time function
 	.ratio_persist_time_stat <- function(node, sisters) {
-		
-		min_persist_time <- rep(min_time_full,2)
-		max_persist_time <- rep(max_time_full,2)
-		diff_persist_time <- rep(0,2)
+		persist_time <- rep(0,2)
+		max_persist_time <- rep(0,2)
 		for(ll in 1:length(sisters)) {
 			if(ndesc[ sisters[ll] ] >= min_descendants) {
-				desc_same_sisters <- descendants[[ sisters[ll] ]]
-				# estimated tmrca of comparison node
-				min_persist_time[ll] <- tmrca[node]
-				# max estimated time of descending tips
-				max_persist_time[ll] <- max(tmrca[ desc_same_sisters ])
-				diff_persist_time[ll] <- max_persist_time[ll] - min_persist_time[ll]
+				persist_time[ll] <- persistence_time[ sisters[ll] ] #node
 			}else {
-				min_persist_time[ll] <- max_persist_time[ll] <- diff_persist_time[ll] <- -1
+				persist_time[ll] <- -1
 			}
-			names(max_persist_time[ll]) <- sisters[ll]
-			names(min_persist_time[ll]) <- sisters[ll]
+			max_persist_time[ll] <- max_desc_time[ sisters[ll] ]
+			names(persist_time[ll]) <- sisters[ll]
+			names(persist_time[ll]) <- sisters[ll]
 		}
 		# TODO: way to calculate ratios considering polytomies
-		diff_persist_time <- sort(diff_persist_time, decreasing=TRUE)
-		ratio_persist_time <- round( diff_persist_time[1] / diff_persist_time[2], digits=2)
-		res_ratio_persist_time <- c(min_persist_time[1], max_persist_time, diff_persist_time, ratio_persist_time)
+		persist_time <- sort(persist_time, decreasing=TRUE)
+		ratio_persist_time <- round( persist_time[1] / persist_time[2], digits=2)
+		res_ratio_persist_time <- c(tmrca[node], max_persist_time, ratio_persist_time)
 		
 		return(res_ratio_persist_time)
 	}
@@ -237,10 +227,9 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 	.logistic_growth_stat <- function(node, sisters) {
 		# TODO: way to calculate logistic regression considering polytomies
 		lg_res_list <- list()
-		# desc_tips_same_sisters1 <- rep( 1, ndesc[ sisters[1] ]); desc_tips_same_sisters2 <- rep( 1, ndesc[ sisters[2]] )
+		sisters <- .get_children_node(node)
 		desc_tips_same_sisters1 <- descendant_ids[[ sisters[1] ]]
 		desc_tips_same_sisters2 <- descendant_ids[[ sisters[2] ]]
-		lg_res_list <- list()
 
 		if((length(desc_tips_same_sisters1) >= min_descendants) && (length(desc_tips_same_sisters2) >= min_descendants)) {
 			sts_tips_same_sisters1 <- sts[ desc_tips_same_sisters1 ]
@@ -251,14 +240,14 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 			s <- summary(model)
 			rel_growth_gen_time <- unname(coef(model)[2] * gen_time)
 			p <- s$coefficients[2,4]
-			lg_res_list <- cbind(rel_growth_gen_time, p) #node, sisters[[node]][1], sisters[[node]][2], 
+			lg_res_list <- cbind(rel_growth_gen_time, p) #node, sisters[[node]][1], sisters[[node]][2],
 		}else {
 			lg_res_list <- cbind(-1, -1)
 		}
 		return(lg_res_list)
 	}
 	
-	# summarise lineage Frequencys inside the node of interest
+	# summarise lineage frequencies inside the node of interest
 	.lineage_summary <- function(tips, max_rows=5) {
 		if(is.null(tips)) {
 			return("")
@@ -271,11 +260,11 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 		} else {
 			perc_df <- data.frame(Lineage=lineages[1], Freq=1)
 		}
-		perc_df <- perc_df[ 1:min(nrow(perc_df),max_rows), ] 
+		perc_df <- perc_df[ 1:min(nrow(perc_df),max_rows), ]
 		perc_df$Freq <- paste0(round(perc_df$Freq*100), "%")
 		perc_df
 	}
-	
+
 	.region_summary <- function(tips, max_rows=5) {
 		if(is.null(tips)) {
 			return("")
@@ -292,14 +281,31 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 		perc_df$Freq <- paste0(round(perc_df$Freq*100), "%")
 		perc_df
 	}
-	
+
 	.get_tips_sisters <- function(sister1, sister2) {
 		desc_tips_same_sisters1 <- descendant_ids[[ sister1 ]]
 		desc_tips_same_sisters2 <- descendant_ids[[ sister2 ]]
 		tips_both_sisters <- c(desc_tips_same_sisters1, desc_tips_same_sisters2)
 		tips_both_sisters
 	}
-	
+
+	quantile_options <- c(1/2, 1/3, 1/4, 1/5, 1/6, 1/7, 1/8, 1/9, 1/10)
+	.extract_value_below_quantile_threshold <- function(df, var, chosen_quantile, quantile_threshold) {
+		if(chosen_quantile %in% quantile_options) {
+			quant <- quantile(var, probs=seq(0,1,chosen_quantile)) #na.rm=TRUE
+			message("Quantiles")
+			print(quant)
+			value_chosen_quant <- unname(quant[names(quant) == quantile_threshold])
+			value_chosen_quant <- round(value_chosen_quant, digits=2)
+			message(glue("Threshold value at quantile {quantile_threshold}"))
+			message(value_chosen_quant)
+			res_df <- df[(var < value_chosen_quant),]
+		}else {
+			stop("Choices for quantile are: {1/2, ... , 1/10}")
+		}
+		return(res_df)
+	}
+
 	# compute node stats based on conditions
 	tgt_nodes <- which((ndesc >= min_descendants) & (ndesc <= max_descendants) & (clade_age >= min_cluster_age_yrs))
 	message(glue("Number of target nodes: {length(tgt_nodes)}"))
@@ -309,68 +315,74 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 	st1 <- st2 <- st3 <- comb_stats <- list()
 	for(n in 1:(ntip+nnode)) {
 		if(n <= (ntip+1)) {
-			st1[[n]] <- st2[[n]] <- st3[[n]] <- -1 
+			st1[[n]] <- st2[[n]] <- st3[[n]] <- -1
 		}else {
 			if(n %% 1000 == 0) message(glue("Progress: {n} / {(ntip+nnode)}"))
-			sisters <- .get_sisters_node(n)
+			sisters <- .get_children_node(n)
 			if(n %in% tgt_nodes) {
 				st1[[n]] <- .ratio_sizes_stat(n, sisters)
 				st2[[n]] <- .ratio_persist_time_stat(n, sisters)
-				st3[[n]] <- .logistic_growth_stat(n, sisters)
-				comb_stats[[n]] <- cbind(n, sisters[1], sisters[2], st1[[n]][1], st1[[n]][2], st1[[n]][3], st2[[n]][1], st2[[n]][2], st2[[n]][3], st2[[n]][4], st2[[n]][5], st2[[n]][6], st3[[n]][,1], st3[[n]][,2]) #changed
+				st3[[n]] <- .logistic_growth_stat(n) #,sisters
+				comb_stats[[n]] <- cbind(n, sisters[1], sisters[2], st1[[n]][1], st1[[n]][2], st1[[n]][3], st2[[n]][1], st2[[n]][2], st2[[n]][3], st2[[n]][4], st3[[n]][,1], st3[[n]][,2]) # st2[[n]][5], st2[[n]][6] changed
 			}else {
-				comb_stats[[n]] <- cbind(n, sisters[1], sisters[2], -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1) # c(rep=c(-1,11))
+				comb_stats[[n]] <- cbind(n, sisters[1], sisters[2], -1,-1,-1,-1,-1,-1,-1,-1,-1) # -1,-1; c(rep=c(-1,11))
 				comb_stats[[n]] <- as.data.frame(comb_stats[[n]])
 			}
 			rownames(comb_stats[[n]]) <- NULL
 		}
 	}
 	stats_df <- as.data.frame(do.call(rbind, comb_stats))
-	colnames(stats_df) <- c("node","sister1","sister2","size_sister1","size_sister2","ratio_sizes","min_time_node","max_time_sister1","max_time_sister2","diff_time_sister1","diff_time_sister2","ratio_persist_time","logistic_growth", "logistic_growth_p") 
-	
+	colnames(stats_df) <- c("node","sister1","sister2","size_sister1","size_sister2","ratio_sizes","min_time_node","max_time_sister1","max_time_sister2","ratio_persist_time","logistic_growth", "logistic_growth_p") #"diff_time_sister1","diff_time_sister2"
+
 	# Filter and write to CSV files
 	# unfiltered output (just removing filtered based on overall min_descendants => -1 on all values)
 	stats_df_unfilt <- stats_df[(stats_df$ratio_sizes > 1),] #-1
 	stats_df_unfilt <- stats_df_unfilt[order(-stats_df_unfilt$ratio_sizes, -stats_df_unfilt$ratio_persist_time, -stats_df_unfilt$logistic_growth, stats_df_unfilt$logistic_growth_p),]
 	write.csv(stats_df_unfilt, file=glue('{output_dir}/stats_unfiltered.csv'), quote=FALSE, row.names=FALSE)
-	
+
 	# ratio sizes threshold
-	stats_df_rs_all <- stats_df_unfilt[(stats_df_unfilt$ratio_sizes >= threshold_ratio_sizes),]
+	# stats_df_rs_all <- stats_df_unfilt[(stats_df_unfilt$ratio_sizes >= threshold_ratio_sizes),]
+	# stats_df_rs <- stats_df_rs_all[, c(1:6)]
+	# print(quantile(stats_df_rs$ratio_sizes))
+	# View(stats_df_unfilt)
+	stats_df_rs_all <- .extract_value_below_quantile_threshold(stats_df_unfilt, stats_df_unfilt$ratio_sizes, quantile_choice, quantile_threshold_ratio_sizes)
 	stats_df_rs <- stats_df_rs_all[, c(1:6)]
 	write.csv(stats_df_rs, file=glue('{output_dir}/stats_ratio_size_threshold.csv'), quote=FALSE, row.names=FALSE)
-	
+
 	# ratio persistence time threshold
-	stats_df_rpt <- stats_df_unfilt[(stats_df_unfilt$ratio_persist_time >= threshold_ratio_persist_time),]
-	stats_df_rpt_all <- stats_df_rpt[order(-stats_df_rpt$ratio_persist_time),]
-	stats_df_rpt <- stats_df_rpt_all[, c(1:3,7:12)]
+	stats_df_rpt_all <- .extract_value_below_quantile_threshold(stats_df_unfilt, stats_df_unfilt$ratio_persist_time, quantile_choice, quantile_threshold_ratio_persist_time)
+	stats_df_rpt_all <- stats_df_rpt_all[order(-stats_df_rpt_all$ratio_persist_time),]
+	stats_df_rpt <- stats_df_rpt_all[, c(1:3,7:10)]
 	write.csv(stats_df_rpt, file=glue('{output_dir}/stats_ratio_persist_time_threshold.csv'), quote=FALSE, row.names=FALSE)
-	
+
 	# logistic growth p-filtered
 	stats_df_lg_p <- stats_df_unfilt[(stats_df_unfilt$logistic_growth_p > -1) & (stats_df_unfilt$logistic_growth_p <= 0.05),]
 	stats_df_lg_p_all <- stats_df_lg_p[order(-stats_df_lg_p$logistic_growth, stats_df_lg_p$logistic_growth_p),]
-	stats_df_lg_p <- stats_df_lg_p_all[, c(1:3,13:14)]
+	stats_df_lg_p <- stats_df_lg_p_all[, c(1:3,11:12)] #13:14
+	#print(quantile(stats_df_lg_p$logistic_growth))
 	write.csv(stats_df_lg_p, file=glue('{output_dir}/stats_logit_growth_p_threshold.csv'), quote=FALSE, row.names=FALSE)
-	
+
 	# Get intersection between applied filters
-	stats_df_intersect <- merge(stats_df_rs, stats_df_rpt) # by="node" 
+	stats_df_intersect <- merge(stats_df_rs, stats_df_rpt) # by="node"
 	stats_df_intersect <- merge(stats_df_intersect, stats_df_lg_p)
+	stats_df_intersect <- stats_df_intersect[order(-stats_df_intersect$ratio_sizes, -stats_df_intersect$ratio_persist_time, -stats_df_intersect$logistic_growth, stats_df_intersect$logistic_growth_p),]
 	write.csv(stats_df_intersect, file=glue('{output_dir}/stats_intersection.csv'), quote=FALSE, row.names=FALSE)
-	
+
 	# Get union between applied filters to plot trees starting on node
-	stats_df_union <- rbind(stats_df_rs_all,stats_df_rpt_all,stats_df_lg_p_all) 
+	stats_df_union <- rbind(stats_df_rs_all,stats_df_rpt_all,stats_df_lg_p_all)
 	stats_df_union <- unique(stats_df_union); rownames(stats_df_union) <- NULL
 	stats_df_union <- stats_df_union[order(-stats_df_union$ratio_sizes, -stats_df_union$ratio_persist_time, -stats_df_union$logistic_growth, stats_df_union$logistic_growth_p),]
 	write.csv(stats_df_union, file=glue('{output_dir}/stats_union.csv'), quote=FALSE, row.names=FALSE)
-	
-	message(glue("Nodes matching threshold >= {threshold_ratio_sizes} of ratio sizes: {nrow(stats_df_rs)}"))
-	message(glue("Nodes matching threshold >= {threshold_ratio_persist_time} of ratio persistence time: {nrow(stats_df_rpt)}"))
+
+	message(glue("Nodes matching threshold < {quantile_threshold_ratio_sizes} quantile of ratio sizes: {nrow(stats_df_rs)}"))
+	message(glue("Nodes matching threshold < {quantile_threshold_ratio_persist_time} quantile of ratio persistence time: {nrow(stats_df_rpt)}"))
 	message(glue("Nodes matching threshold <= 0.05 of logistic regression p-value: {nrow(stats_df_lg_p)}"))
 	message(glue("Nodes matching all thresholds: {nrow(stats_df_intersect)}"))
 	message(glue("Nodes matching at least one threshold: {nrow(stats_df_union)}"))
-	
+
 	if (!dir.exists(glue("{output_dir}/node_specific/")))
 		suppressWarnings( dir.create(glue("{output_dir}/node_specific/")) )
-	
+
 	if(length(tre$tip.label) < 1e4){
 		message(glue("Plotting trees zoomed on node + sequences + lineage + region summaries for nodes matching at least one of the thresholds..."))
 		p <- ggtree(tre, mrsd=max_date) + scale_x_continuous(expand = c(0, 0)) + theme_tree2(axis.text.x=element_text(size=5, angle=45, vjust=1, hjust=1))
@@ -388,21 +400,21 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 		region_summary <- .region_summary(tips=seqs)
 		write.csv(region_summary, file=glue('{output_dir}/node_specific/{stats_df_union[i,1]}_region_summary.csv'), quote=FALSE, row.names=FALSE)
 	}
-	
+
 	message(paste0("Number of descendants vector length: ", length(ndesc)))
 
 	return(stats_df)
 }
 
 test_ebola <- cladeScore(ebov_tre, ebov_md, min_descendants=5, max_descendants=75, min_cluster_age_yrs=0.2/12, min_date=as.Date("2014-07-01"),
-																									max_date=as.Date("2015-10-24"),output_dir="results/test_ebola", threshold_ratio_sizes=2, threshold_ratio_persist_time=1.5, gen_time=16.6,
-																									root_on_tip="LIBR10245_2014-07-01", root_on_tip_sample_time=2014.496)
+																									max_date=as.Date("2015-10-24"),branch_length_unit="years",output_dir="results/test_ebola", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", 
+																									quantile_threshold_ratio_persist_time="20%", gen_time=16.6,root_on_tip="LIBR10245_2014-07-01", root_on_tip_sample_time=2014.496)
 
 # 2019-12-30 to 2020-06-30 (first lineages)
 start <- Sys.time()
 cladeScore_1st <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=1e3, min_cluster_age_yrs=0.5/12, min_date=as.Date("2019-12-30"),
-																			max_date=as.Date("2020-06-30"), output_dir="results/01_sc2_root_to_jun2020", threshold_ratio_sizes=1.5, threshold_ratio_persist_time=1.25, gen_time=7/365,
-																			root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995)
+																			max_date=as.Date("2020-06-30"),branch_length_unit="days",output_dir="results/01_sc2_root_to_jun2020", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", 
+																			quantile_threshold_ratio_persist_time="20%", gen_time=7/365, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed: ",total_time,"mins"))
@@ -410,8 +422,8 @@ message(paste("Total time elapsed: ",total_time,"mins"))
 # 2020-07-01 to 2020-12-31 (B.1.177 + start Alpha)
 start <- Sys.time()
 cladeScore_2nd <- cladeScore(sc2_tre, sc2_md, min_descendants=25, max_descendants=5e3, min_cluster_age_yrs=1/12, min_date=as.Date("2020-07-01"),
-																													max_date=as.Date("2020-12-31"), output_dir="results/02_sc2_jul2020_to_dec2020", threshold_ratio_sizes=2, threshold_ratio_persist_time=1.5, gen_time=7/365,
-																													root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995)
+																													max_date=as.Date("2020-12-31"),branch_length_unit="days",output_dir="results/02_sc2_jul2020_to_dec2020", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", 
+																													quantile_threshold_ratio_persist_time="20%", gen_time=7/365,root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed: ",total_time,"mins"))
@@ -419,8 +431,8 @@ message(paste("Total time elapsed: ",total_time,"mins"))
 # 2021-01-01 to 2021-05-31 (Alpha + Delta rapidly replacing)
 start <- Sys.time()
 cladeScore_3rd <- cladeScore(sc2_tre, sc2_md, min_descendants=50, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-01-01"),
-																													max_date=as.Date("2021-05-31"), output_dir="results/03_sc2_jan2021_to_may2021", threshold_ratio_sizes=2, threshold_ratio_persist_time=1.5, gen_time=7/365,
-																													root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995)
+																													max_date=as.Date("2021-05-31"),branch_length_unit="days",output_dir="results/03_sc2_jan2021_to_may2021", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", 
+																													quantile_threshold_ratio_persist_time="20%", gen_time=7/365,root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed: ",total_time,"mins"))
@@ -428,7 +440,7 @@ message(paste("Total time elapsed: ",total_time,"mins"))
 # 2021-06-01 to 2021-12-31 (Delta + Omicron BA.1 rapidly replacing)
 start <- Sys.time()
 cladeScore_4th <- cladeScore(sc2_tre, sc2_md, min_descendants=50, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-06-01"),
-																													max_date=as.Date("2021-12-31"), output_dir="results/04_sc2_jun2021_to_dec2021", threshold_ratio_sizes=2, threshold_ratio_persist_time=1.5, gen_time=7/365,
+																													max_date=as.Date("2021-12-31"),branch_length_unit="days",output_dir="results/04_sc2_jun2021_to_dec2021", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", quantile_threshold_ratio_persist_time="20%", gen_time=7/365,
 																													root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
@@ -437,8 +449,8 @@ message(paste("Total time elapsed: ",total_time,"mins"))
 # 2022-01-01 to 2022-04-30 (Omicron BA.1 + BA.2 rapidly replacing)
 start <- Sys.time()
 cladeScore_5th <- cladeScore(sc2_tre, sc2_md, min_descendants=50, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2022-01-01"),
-																													max_date=as.Date("2022-04-30"), output_dir="results/05_sc2_jan2022_to_apr2022", threshold_ratio_sizes=2, threshold_ratio_persist_time=1.5, gen_time=7/365,
-																													root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995)
+																													max_date=as.Date("2022-04-30"),branch_length_unit="days",output_dir="results/05_sc2_jan2022_to_apr2022", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", 
+																													quantile_threshold_ratio_persist_time="20%", gen_time=7/365,root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed: ",total_time,"mins"))
@@ -446,8 +458,8 @@ message(paste("Total time elapsed: ",total_time,"mins"))
 # Whole tree period (2019-12-30 to 2022-04-30)
 start <- Sys.time()
 cladeScore_all <- cladeScore(sc2_tre, sc2_md, min_descendants=50, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"),
-																													max_date=as.Date("2022-04-30"), output_dir="results/06_sc2_whole_period", threshold_ratio_sizes=2, threshold_ratio_persist_time=1.5, gen_time=7/365,
-																													root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995) # around 10 minutes to run
+																													max_date=as.Date("2022-04-30"),branch_length_unit="days", output_dir="results/06_sc2_whole_period", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", 
+																													quantile_threshold_ratio_persist_time="20%", gen_time=7/365,root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995) # around 10 minutes to run
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed: ",total_time,"mins"))
