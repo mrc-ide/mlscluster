@@ -132,7 +132,6 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 		persistence_time[n] <- max_desc_time[n] - tmrca[n]
 	}
 	clade_age <- max_desc_time - min_desc_time # time span of descendant tips
-	#print(persistence_time)
 	
 	# ancestors
 	ancestors <- lapply(1:(ntip+nnode), function(tp) integer() )
@@ -175,47 +174,71 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 		na.omit(tre$tip.label[descendant_tips[[tp]]])
 	})
 	
-	.get_children_node <- function(node) {
-		daughters <- tre$edge[ tre$edge[,1] == node, 2 ]
-		daughters
+	# .get_children_node <- function(node) {
+	# 	daughters <- tre$edge[ tre$edge[,1] == node, 2 ]
+	# 	daughters
+	# }
+	
+	.get_comparison_sister_node <- function(node) {
+		imed_ancestor <- tail(ancestors[[node]], 1)
+		sisters <- tre$edge[ tre$edge[,1] == imed_ancestor, 2 ]
+		comparison_node <- setdiff(sisters, node)
+		
+		desc_tips_sisters <- lapply(1:length(sisters), function(tp) descendant_ids[[ sisters[[tp]] ]] )
+		names(desc_tips_sisters) <- lapply(1:length(desc_tips_sisters), function(tp) sisters[[tp]] )
+		
+		sts_tips_sisters <- lapply(1:length(desc_tips_sisters), function(tp) sts[ desc_tips_sisters[[tp]] ] )
+		names(sts_tips_sisters) <- lapply(1:length(sts_tips_sisters), function(tp) sisters[[ tp ]] )
+		
+		desc_tips_sisters_node <- unlist(unname(desc_tips_sisters[names(desc_tips_sisters) == node]))
+		desc_tips_sisters_control <- unlist(unname(desc_tips_sisters[names(desc_tips_sisters) == comparison_node]))
+		sts_tips_sisters_node <- unlist(unname(sts_tips_sisters[names(sts_tips_sisters) == node]))
+		sts_tips_sisters_control <- unlist(unname(sts_tips_sisters[names(sts_tips_sisters) == comparison_node]))
+		
+		res <- list()
+		if((length(desc_tips_sisters_node) >= min_descendants) && (length(desc_tips_sisters_control) >= min_descendants)) {
+			res <- list(sisters, comparison_node, desc_tips_sisters, sts_tips_sisters, desc_tips_sisters_node, 
+										desc_tips_sisters_control, sts_tips_sisters_node, sts_tips_sisters_control)
+		}else {
+			res <- NULL
+		}
+		return(res)
 	}
 	
 	# ratio sizes function
-	.ratio_sizes_stat <- function(node, sisters) {
-		
+	.ratio_sizes_stat <- function(node) {
+		comp_res <- .get_comparison_sister_node(node)
 		length_sisters <- rep(1,2)
-		for(ll in 1:length(sisters)) {
-			if(ndesc[ sisters[ll] ] >= min_descendants) {
-				# size of sister clades
-				length_sisters[ll] <- ndesc[ sisters[ll] ]
-			}else {
-				length_sisters[ll] <- -1
-			}
-			names(length_sisters[ll]) <- sisters[ll]
+		if(!is.null(comp_res)) {
+			length_sisters[1] <- length(comp_res[[5]])
+			length_sisters[2] <- length(comp_res[[6]])
+		}else {
+			length_sisters <- c(-1, -1)
 		}
-		# TODO: way to calculate ratios considering polytomies
+		
 		length_sisters <- sort(length_sisters, decreasing=TRUE)
 		ratio_sizes <- round( length_sisters[1] / length_sisters[2], digits=2)
 		res_ratio_sizes <- c(length_sisters, ratio_sizes)
-		
 		return(res_ratio_sizes)
 	}
 	
 	# ratio persistence time function
-	.ratio_persist_time_stat <- function(node, sisters) {
+	.ratio_persist_time_stat <- function(node) {
+		comp_res <- .get_comparison_sister_node(node)
 		persist_time <- rep(0,2)
 		max_persist_time <- rep(0,2)
-		for(ll in 1:length(sisters)) {
-			if(ndesc[ sisters[ll] ] >= min_descendants) {
-				persist_time[ll] <- persistence_time[ sisters[ll] ] #node
-			}else {
-				persist_time[ll] <- -1
-			}
-			max_persist_time[ll] <- max_desc_time[ sisters[ll] ]
-			names(persist_time[ll]) <- sisters[ll]
-			names(persist_time[ll]) <- sisters[ll]
+		
+		if(!is.null(comp_res)) {
+			persist_time[1] <- persistence_time[ node ]
+			persist_time[2] <- max( persistence_time[ comp_res[[2]] ])
+			max_persist_time[1] <- max_desc_time[ node ]
+			max_persist_time[2] <- max( max_desc_time[ comp_res[[2]] ])
+		}else {
+			persist_time <- c(-1, -1)
+			max_persist_time <- c(-1, -1)
 		}
-		# TODO: way to calculate ratios considering polytomies
+		#print(persist_time)
+		
 		persist_time <- sort(persist_time, decreasing=TRUE)
 		ratio_persist_time <- round( persist_time[1] / persist_time[2], digits=2)
 		res_ratio_persist_time <- c(tmrca[node], max_persist_time, ratio_persist_time)
@@ -226,39 +249,29 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 	# logistic growth of sister clades function
 	.logistic_growth_stat <- function(node) {
 		lg_res_list <- list()
-		imed_ancestor <- tail(ancestors[[node]], 1)
-		sisters <- .get_children_node(imed_ancestor)
-		control <- setdiff(sisters, node)
-		# print("node");print(node)
-		# print("control");print(control)
-		desc_tips_sisters <- lapply(1:length(sisters), function(tp) descendant_ids[[ sisters[[tp]] ]] )
-		names(desc_tips_sisters) <- lapply(1:length(desc_tips_sisters), function(tp) sisters[[ tp ]] )
+		comp_res <- .get_comparison_sister_node(node)
 		
-		sts_tips_sisters <- lapply(1:length(desc_tips_sisters), function(tp) sts[ desc_tips_sisters[[tp]] ] )
-		names(sts_tips_sisters) <- lapply(1:length(sts_tips_sisters), function(tp) sisters[[ tp ]] )
-		desc_tips_sisters_node <- unlist(unname(desc_tips_sisters[names(desc_tips_sisters) == node]))
-		desc_tips_sisters_control <- unlist(unname(desc_tips_sisters[names(desc_tips_sisters) != node]))
-		sts_tips_sisters_node <- unlist(unname(sts_tips_sisters[names(sts_tips_sisters) == node]))
-		sts_tips_sisters_control <- unlist(unname(sts_tips_sisters[names(sts_tips_sisters) != node]))
-		
-		if((length(unlist(unname(desc_tips_sisters[names(desc_tips_sisters) == node]))) >= min_descendants) && 
-					(length(unlist(unname(desc_tips_sisters[names(desc_tips_sisters) != node]))) >= min_descendants)) {
-	
-			X <- data.frame(sequence_name=c(desc_tips_sisters_node, desc_tips_sisters_control),
-																			time=c(sts_tips_sisters_node, sts_tips_sisters_control),
-																			type=c(rep("node",length(desc_tips_sisters_node)), rep("control",length(desc_tips_sisters_control))))
-
+		if(!is.null(comp_res)) {
+			X <- data.frame(sequence_name=c(comp_res[[5]], comp_res[[6]]),
+																			time=c(comp_res[[7]], comp_res[[8]]),
+																			type=c(rep("node",length(comp_res[[5]])), rep("control",length(comp_res[[6]]))))
+			
 			X <- na.omit(X)
-			model <- suppressWarnings ( glm(type=="node" ~ time, data=X, family=binomial(link="logit")) )
+			model <- suppressWarnings( glm(type=="node" ~ time, data=X, family=binomial(link="logit")) )
 			s <- summary(model)
 			rel_growth_gen_time <- unname(coef(model)[2] * gen_time)
 			p <- s$coefficients[2,4]
-			lg_res_list <- cbind(rel_growth_gen_time, p, control) #node, sisters[[node]][1], sisters[[node]][2],
+			lg_res_list <- cbind(rel_growth_gen_time, p, comp_res[[2]]) #node, sisters[[node]][1], sisters[[node]][2],
 		}else {
 			lg_res_list <- cbind(-1, -1, -1)
 		}
 		return(lg_res_list)
 	}
+	
+	# .node_muts <- function(node, mut_var="mutations") {
+	# 	sisters <- .get_children_node(node)
+	# 	
+	# }
 	
 	# summarise lineage frequencies inside the node of interest
 	.lineage_summary <- function(tips, max_rows=5) {
@@ -332,21 +345,23 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 			st1[[n]] <- st2[[n]] <- st3[[n]] <- -1
 		}else {
 			if(n %% 1000 == 0) message(glue("Progress: {n} / {(ntip+nnode)}"))
-			sisters <- .get_children_node(n)
-			if(n %in% tgt_nodes) {
-				st1[[n]] <- .ratio_sizes_stat(n, sisters)
-				st2[[n]] <- .ratio_persist_time_stat(n, sisters)
-				st3[[n]] <- .logistic_growth_stat(n) #,sisters
-				comb_stats[[n]] <- cbind(n, sisters[1], sisters[2], st1[[n]][1], st1[[n]][2], st1[[n]][3], st2[[n]][1], st2[[n]][2], st2[[n]][3], st2[[n]][4], st3[[n]][,1], st3[[n]][,2], st3[[n]][,3])
+			sisters <- .get_comparison_sister_node(n)[[1]]
+			if(!is.null(sisters)) {
+				if(n %in% tgt_nodes) {
+					st1[[n]] <- .ratio_sizes_stat(n)
+					st2[[n]] <- .ratio_persist_time_stat(n)
+					st3[[n]] <- .logistic_growth_stat(n) #,sisters
+					comb_stats[[n]] <- cbind(n, sisters[1], sisters[2], st1[[n]][1], st1[[n]][2], st1[[n]][3], st2[[n]][1], st2[[n]][2], st2[[n]][3], st2[[n]][4], st3[[n]][,1], st3[[n]][,2]) #st3[[n]][,3]
 			}else {
-				comb_stats[[n]] <- cbind(n, sisters[1], sisters[2], -1,-1,-1,-1,-1,-1,-1,-1,-1, -1) # -1,-1; c(rep=c(-1,11))
-				comb_stats[[n]] <- as.data.frame(comb_stats[[n]])
+					comb_stats[[n]] <- cbind(n, sisters[1], sisters[2], -1,-1,-1,-1,-1,-1,-1,-1,-1)
+					comb_stats[[n]] <- as.data.frame(comb_stats[[n]])
 			}
 			rownames(comb_stats[[n]]) <- NULL
+			}
 		}
 	}
 	stats_df <- as.data.frame(do.call(rbind, comb_stats))
-	colnames(stats_df) <- c("node","sister1","sister2","size_sister1","size_sister2","ratio_sizes","min_time_node","max_time_sister1","max_time_sister2","ratio_persist_time","logistic_growth", "logistic_growth_p","control_clade(s)") #"diff_time_sister1","diff_time_sister2"
+	colnames(stats_df) <- c("node","comp_sister1","comp_sister2","size1","size2","ratio_sizes","min_time_node","max_time1","max_time2","ratio_persist_time","logistic_growth", "logistic_growth_p") #"diff_time_sister1","diff_time_sister2", "control_clade(s)"
 
 	# Filter and write to CSV files
 	# unfiltered output (just removing filtered based on overall min_descendants => -1 on all values)
@@ -368,7 +383,7 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 	# logistic growth p-filtered
 	stats_df_lg_p <- stats_df_unfilt[(stats_df_unfilt$logistic_growth_p > -1) & (stats_df_unfilt$logistic_growth_p <= 0.05),]
 	stats_df_lg_p_all <- stats_df_lg_p[order(-stats_df_lg_p$logistic_growth, stats_df_lg_p$logistic_growth_p),]
-	stats_df_lg_p <- stats_df_lg_p_all[, c(1,11:13)] #1:3,13:14
+	stats_df_lg_p <- stats_df_lg_p_all[, c(1,11:12)] #1:3,13:14
 	write.csv(stats_df_lg_p, file=glue('{output_dir}/stats_logit_growth_p_threshold.csv'), quote=FALSE, row.names=FALSE)
 
 	# Get intersection between applied filters
