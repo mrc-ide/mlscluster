@@ -13,6 +13,8 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 	library(ggtree)
 	library(ggplot2)
 	library(data.table)
+	library(dplyr)
+	library(stringr)
 	
 	class(tre) <- "phylo"
 	
@@ -289,18 +291,18 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 		def_muts_nodes <- lapply( 1:length(node_list), function(tp) .node_muts(node_list[[tp]]) )
 		names(def_muts_nodes) <- lapply( 1:length(node_list), function(tp) node_list[[tp]] )
 		
-		def_muts_nodes <- sapply(def_muts_nodes, "[[",1) #def_muts_nodes[[x]]$defining
+		def_muts_nodes <- sapply(def_muts_nodes, "[[",1)
 		def_muts_nodes <- lapply(def_muts_nodes, function(x) if(identical(x, character(0))) NA_character_ else x)
 
 		def_muts_nodes_df <- rbindlist( lapply(def_muts_nodes, function(x) data.table(x)), idcol="node") #fill=TRUE,
 		def_muts_nodes_df <- na.omit(def_muts_nodes_df)
 		names(def_muts_nodes_df) <- c("node","defining_mut")
 		#View(def_muts_nodes_df)
-		tab_def_muts_df <- setDT(def_muts_nodes_df)[, .(Freq = .N), by = .(defining_mut)]
+		tab_def_muts_df <- setDT(def_muts_nodes_df)[, .(Freq_homopl = .N), by = .(defining_mut)]
 		#View(tab_def_muts_df)
 		homoplasy_count_df <- merge(def_muts_nodes_df, tab_def_muts_df, by="defining_mut")
-		homoplasy_count_df <- homoplasy_count_df[as.numeric(homoplasy_count_df$Freq) > 1,]
-		View(homoplasy_count_df)
+		homoplasy_count_df <- homoplasy_count_df[as.numeric(homoplasy_count_df$Freq_homopl) > 1,]
+		#View(homoplasy_count_df)
 		
 		homoplasy_count_df
 	}
@@ -428,19 +430,6 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 		}
 		return(res_df)
 	}
-	
-	# https://stackoverflow.com/questions/7680959/convert-type-of-multiple-columns-of-a-dataframe-at-once
-	# convert_df_col_formats <- function(obj, types){
-	# 	# for (i in 1:length(obj)){
-	# 	# 	func <- switch(types[i],character = as.character, 
-	# 	# 															numeric = as.numeric, 
-	# 	# 															factor = as.factor)
-	# 	# 	obj[,i] <- func(obj[,i])
-	# 	# }
-	# 	out <- lapply(1:length(obj),FUN = function(i){FUN1 <- switch(types[i],character = as.character,numeric = as.numeric,factor = as.factor); FUN1(obj[,i])})
-	# 	names(out) <- colnames(obj)
-	# 	as.data.frame(out,stringsAsFactors = FALSE)
-	# }
 
 	# compute node stats based on conditions
 	tgt_nodes <- which((ndesc >= min_descendants) & (ndesc <= max_descendants) & (clade_age >= min_cluster_age_yrs))
@@ -514,6 +503,16 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 	stats_df_union <- stats_df_union[order(as.numeric(stats_df_union$ratio_sizes), as.numeric(stats_df_union$ratio_persist_time), as.numeric(stats_df_union$logistic_growth), decreasing=TRUE),]
 	write.csv(stats_df_union, file=glue('{output_dir}/stats_union.csv'), quote=FALSE, row.names=FALSE)
 	
+	# Homoplasies
+	stats_df_homopl <- merge(stats_df_union, homoplasies, by="node")
+	View(stats_df_homopl)
+	stats_df_homopl_nodes <- stats_df_homopl %>% group_by(defining_mut) %>% summarize(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% ungroup()
+	stats_df_homopl <- merge(stats_df_homopl, stats_df_homopl_nodes, by="defining_mut")
+	stats_df_homopl <- stats_df_homopl[order(as.numeric(stats_df_homopl$node)),]
+	stats_df_homopl <- stats_df_homopl[, c(2:3,1,15:17,4:14)]
+	write.csv(stats_df_homopl, file=glue('{output_dir}/homoplasy_details.csv'), quote=FALSE, row.names=FALSE)
+	#View(stats_df_homopl)
+	
 	message(glue("Nodes matching threshold {ifelse(threshold_keep_lower, '<', '>')} {quantile_threshold_ratio_sizes} quantile of ratio sizes: {nrow(stats_df_rs)}"))
 	message(glue("Nodes matching threshold {ifelse(threshold_keep_lower, '<', '>')} {quantile_threshold_ratio_persist_time} quantile of ratio persistence time: {nrow(stats_df_rpt)}"))
 	message(glue("Nodes matching threshold <= 0.05 of logistic regression p-value: {nrow(stats_df_lg_p)}"))
@@ -558,11 +557,11 @@ cladeScore <- function(tre, amd, min_descendants=100, max_descendants=20e3, min_
 # 2019-12-30 to 2020-06-30 (first lineages)
 start <- Sys.time()
 cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=1e3, min_cluster_age_yrs=0.5/12, min_date=as.Date("2019-12-30"),
-											max_date=as.Date("2020-06-30"),branch_length_unit="days",output_dir="results/01_sc2_root_to_jun2020_without_tree_annots_greater", quantile_choice=1/10, quantile_threshold_ratio_sizes="50%", 
+											max_date=as.Date("2020-06-30"),branch_length_unit="days",output_dir="results/01_sc2_root_to_jun2020", quantile_choice=1/10, quantile_threshold_ratio_sizes="50%", 
 											quantile_threshold_ratio_persist_time="80%", threshold_keep_lower=FALSE, gen_time=7/365, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE)
-cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=1e3, min_cluster_age_yrs=0.5/12, min_date=as.Date("2019-12-30"),
-											max_date=as.Date("2020-06-30"),branch_length_unit="days",output_dir="results/01_sc2_root_to_jun2020_without_tree_annots_lower", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", 
-											quantile_threshold_ratio_persist_time="50%", threshold_keep_lower=TRUE, gen_time=7/365, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE)
+# cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=1e3, min_cluster_age_yrs=0.5/12, min_date=as.Date("2019-12-30"),
+# 											max_date=as.Date("2020-06-30"),branch_length_unit="days",output_dir="results/01_sc2_root_to_jun2020_without_tree_annots_lower", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", 
+# 											quantile_threshold_ratio_persist_time="50%", threshold_keep_lower=TRUE, gen_time=7/365, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE)
 # cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=1e3, min_cluster_age_yrs=0.5/12, min_date=as.Date("2019-12-30"),
 # 											max_date=as.Date("2020-06-30"),branch_length_unit="days",output_dir="results/01_sc2_root_to_jun2020_with_tree_annots", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", 
 # 											quantile_threshold_ratio_persist_time="50%", gen_time=7/365, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=TRUE)
@@ -574,8 +573,8 @@ message(paste("Total time elapsed: ",total_time,"mins"))
 start <- Sys.time()
 # TODO add threshold_keep_lower param
 cladeScore_2nd <- cladeScore(sc2_tre, sc2_md, min_descendants=25, max_descendants=5e3, min_cluster_age_yrs=1/12, min_date=as.Date("2020-07-01"),
-																													max_date=as.Date("2020-12-31"),branch_length_unit="days",output_dir="results/02_sc2_jul2020_to_dec2020", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", 
-																													quantile_threshold_ratio_persist_time="20%", gen_time=7/365, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE)
+																													max_date=as.Date("2020-12-31"),branch_length_unit="days",output_dir="results/02_sc2_jul2020_to_dec2020", quantile_choice=1/10, quantile_threshold_ratio_sizes="80%", 
+																													quantile_threshold_ratio_persist_time="80%", threshold_keep_lower=FALSE, gen_time=7/365, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed: ",total_time,"mins"))
@@ -583,8 +582,8 @@ message(paste("Total time elapsed: ",total_time,"mins"))
 # 2021-01-01 to 2021-05-31 (Alpha + Delta rapidly replacing)
 start <- Sys.time()
 cladeScore_3rd <- cladeScore(sc2_tre, sc2_md, min_descendants=50, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-01-01"),
-																													max_date=as.Date("2021-05-31"),branch_length_unit="days",output_dir="results/03_sc2_jan2021_to_may2021", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", 
-																													quantile_threshold_ratio_persist_time="20%", gen_time=7/365, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE)
+																													max_date=as.Date("2021-05-31"),branch_length_unit="days",output_dir="results/03_sc2_jan2021_to_may2021", quantile_choice=1/10, quantile_threshold_ratio_sizes="80%", 
+																													quantile_threshold_ratio_persist_time="80%", threshold_keep_lower=FALSE, gen_time=7/365, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed: ",total_time,"mins"))
@@ -592,8 +591,8 @@ message(paste("Total time elapsed: ",total_time,"mins"))
 # 2021-06-01 to 2021-12-31 (Delta + Omicron BA.1 rapidly replacing)
 start <- Sys.time()
 cladeScore_4th <- cladeScore(sc2_tre, sc2_md, min_descendants=50, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-06-01"),
-																													max_date=as.Date("2021-12-31"),branch_length_unit="days",output_dir="results/04_sc2_jun2021_to_dec2021", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%",
-																													quantile_threshold_ratio_persist_time="20%", gen_time=7/365, defining_mut_threshold=0.75, 
+																													max_date=as.Date("2021-12-31"),branch_length_unit="days",output_dir="results/04_sc2_jun2021_to_dec2021", quantile_choice=1/10, quantile_threshold_ratio_sizes="80%",
+																													quantile_threshold_ratio_persist_time="80%", threshold_keep_lower=FALSE, gen_time=7/365, defining_mut_threshold=0.75, 
 																													root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
@@ -602,8 +601,8 @@ message(paste("Total time elapsed: ",total_time,"mins"))
 # 2022-01-01 to 2022-04-30 (Omicron BA.1 + BA.2 rapidly replacing)
 start <- Sys.time()
 cladeScore_5th <- cladeScore(sc2_tre, sc2_md, min_descendants=50, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2022-01-01"),
-																													max_date=as.Date("2022-04-30"),branch_length_unit="days",output_dir="results/05_sc2_jan2022_to_apr2022", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", 
-																													quantile_threshold_ratio_persist_time="20%", gen_time=7/365, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE)
+																													max_date=as.Date("2022-04-30"),branch_length_unit="days",output_dir="results/05_sc2_jan2022_to_apr2022", quantile_choice=1/10, quantile_threshold_ratio_sizes="80%", 
+																													quantile_threshold_ratio_persist_time="80%", threshold_keep_lower=FALSE, gen_time=7/365, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed: ",total_time,"mins"))
@@ -611,8 +610,8 @@ message(paste("Total time elapsed: ",total_time,"mins"))
 # Whole tree period (2019-12-30 to 2022-04-30)
 start <- Sys.time()
 cladeScore_all <- cladeScore(sc2_tre, sc2_md, min_descendants=50, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"),
-																													max_date=as.Date("2022-04-30"),branch_length_unit="days", output_dir="results/06_sc2_whole_period", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", 
-																													quantile_threshold_ratio_persist_time="20%", gen_time=7/365, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE)
+																													max_date=as.Date("2022-04-30"),branch_length_unit="days", output_dir="results/06_sc2_whole_period", quantile_choice=1/10, quantile_threshold_ratio_sizes="80%", 
+																													quantile_threshold_ratio_persist_time="80%", threshold_keep_lower=FALSE, gen_time=7/365, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed: ",total_time,"mins"))
