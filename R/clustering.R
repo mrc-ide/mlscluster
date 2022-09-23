@@ -296,6 +296,30 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		homoplasy_count_df
 	}
 	
+	# Annotate S homoplasies in regions of potential significance
+	.annotate_s_homoplasies <- function(homopl_df) {
+		regions_s <- read.csv("config/spike_regions.tsv", sep="\t", header=TRUE)
+		# If has homoplasy in S
+		homopl_df$s_mut <- ifelse( grepl(homopl_df$defining_mut, pattern ='^[S]:') , "Yes", "No")
+		# Get S mut coordinate only
+		rgx <- regexpr('^[S]:[A-Z]{1}[0-9]{1,4}[A-Z]{1}', homopl_df$defining_mut)
+		print(rgx)
+		comm_coord <- rep(NA,length(homopl_df$defining_mut))
+		comm_coord[rgx != -1] <- str_sub( regmatches(homopl_df$defining_mut, rgx) , 4, -2)
+		comm_coord <- as.integer(comm_coord)
+		comm_coord_df <- as.data.frame(comm_coord); colnames(comm_coord_df) <- c("s_mut_coord")
+		View(comm_coord_df)
+		#comm_coord <- str_sub( regmatches( homopl_df$defining_mut, regexpr('^S:[A-Z]{1}[0-9]{1,4}[A-Z]{1}', homopl_df$defining_mut) ), 4, -2) #, invert=NA
+		#homopl_df$s_mut_coord <- ifelse(homopl_df$s_mut == "Yes", comm_coord, )
+		homopl_df <- cbind(homopl_df, comm_coord_df)
+		#homopl_df$s_mut_coord <- as.data.frame(comm_coord) #do.call(rbind.data.frame, comm_coord) #as.data.frame(comm_coord)
+		setDT(homopl_df); setDT(regions_s)
+		# check if coordinate within boundaries of regions of interest
+		homopl_df[regions_s, on=c("s_mut_coord>=start", "s_mut_coord<=end"), s_mut_region_interest := region]
+		View(homopl_df)
+		homopl_df
+	}
+	
 	# Plot tree with defining mutations
 	.cluster_tree <- function(tips) {
 		library(phangorn)
@@ -496,8 +520,12 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	homoplasies1_all_tgt_nodes_df <- na.omit(homoplasies1_all_tgt_nodes_df)
 	stats_df_homopl_nodes1 <- homoplasies1_all_tgt_nodes_df %>% group_by(defining_mut) %>% summarize(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% ungroup()
 	stats_df_homopl1 <- merge(homoplasies1_all_tgt_nodes_df, stats_df_homopl_nodes1, by="defining_mut")
-	stats_df_homopl1 <- stats_df_homopl1 %>% select(nodes_homopl, defining_mut, Freq_homopl)
 	stats_df_homopl1 <- stats_df_homopl1[!duplicated(stats_df_homopl1$defining_mut),]
+	stats_df_homopl1 <- .annotate_s_homoplasies(stats_df_homopl1)
+	stats_df_homopl1 <- stats_df_homopl1 %>% select(nodes_homopl, defining_mut, Freq_homopl, s_mut,	s_mut_region_interest)
+	stats_df_homopl1[is.na(stats_df_homopl1)] = ""
+	stats_df_homopl1 <- stats_df_homopl1[order(stats_df_homopl1$s_mut, stats_df_homopl1$s_mut_region_interest, decreasing=TRUE),]
+	View(stats_df_homopl1)
 	
 	# Homoplasies (node detected by stat)
 	#homoplasies2_detect_df <- merge(stats_df_union, homoplasies, by="node", all.x=TRUE, all.y=FALSE)
@@ -510,8 +538,11 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	stats_df_homopl2_freq <- setDT(stats_df_homopl2)[, .(Freq_homopl = .N), by = .(defining_mut)]
 	stats_df_homopl2_freq_df <- merge(stats_df_homopl2, stats_df_homopl2_freq, by="defining_mut")
 	stats_df_homopl2_freq_df <- stats_df_homopl2_freq_df[as.numeric(stats_df_homopl2_freq_df$Freq_homopl) > 1,]
-	#stats_df_homopl <- stats_df_homopl[order(as.numeric(stats_df_homopl$node)),]
-	stats_df_homopl2_freq_df <- stats_df_homopl2_freq_df[, c(2:3,1,15:17,4:14)]
+	stats_df_homopl2_freq_df <- .annotate_s_homoplasies(stats_df_homopl2_freq_df)
+	stats_df_homopl2_freq_df <- stats_df_homopl2_freq_df[, c(2:3,1,15:17,18,20,4:14)]
+	stats_df_homopl2_freq_df[is.na(stats_df_homopl2_freq_df)] = ""
+	stats_df_homopl2_freq_df <- stats_df_homopl2_freq_df[order(stats_df_homopl2_freq_df$s_mut, stats_df_homopl2_freq_df$s_mut_region_interest, decreasing=TRUE),]
+	View(stats_df_homopl2_freq_df)
 	
 	# Homoplasies (node NOT detected by stat)
 	homoplasies3_not_detect <- setdiff(tgt_nodes, stats_df_union$node)
@@ -525,8 +556,12 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	stats_df_homopl3_freq <- setDT(stats_df_homopl3)[, .(Freq_homopl = .N), by = .(defining_mut)]
 	stats_df_homopl3_freq_df <- merge(stats_df_homopl3, stats_df_homopl3_freq, by="defining_mut")
 	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df[as.numeric(stats_df_homopl3_freq_df$Freq_homopl) > 1,]
-	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df %>% select(nodes_homopl, defining_mut, Freq_homopl)
 	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df[!duplicated(stats_df_homopl3_freq_df$defining_mut),]
+	stats_df_homopl3_freq_df <- .annotate_s_homoplasies(stats_df_homopl3_freq_df)
+	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df %>% select(nodes_homopl, defining_mut, Freq_homopl, s_mut, s_mut_region_interest)
+	stats_df_homopl3_freq_df[is.na(stats_df_homopl3_freq_df)] = ""
+	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df[order(stats_df_homopl3_freq_df$s_mut, stats_df_homopl3_freq_df$s_mut_region_interest, decreasing=TRUE),]
+	View(stats_df_homopl3_freq_df)
 	
 	write.csv(stats_df_homopl1, file=glue('{output_dir}/homoplasy_details_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
 	write.csv(stats_df_homopl2_freq_df, file=glue('{output_dir}/homoplasy_details_detect_stats.csv'), quote=FALSE, row.names=FALSE)
@@ -570,12 +605,12 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 
 # test_ebola <- cladeScore(ebov_tre, ebov_md, min_descendants=5, max_descendants=75, min_cluster_age_yrs=0.2/12, min_date=as.Date("2014-07-01"),max_date=as.Date("2015-10-24"),branch_length_unit="years",output_dir="results/test_ebola", quantile_choice=1/10, quantile_threshold_ratio_sizes="20%", quantile_threshold_ratio_persist_time="20%", gen_time=16.6,root_on_tip="LIBR10245_2014-07-01", root_on_tip_sample_time=2014.496)
 
-# 2019-12-30 to 2020-06-30 (first lineages) + TODO include back later 2020-07-01 to 2020-12-31 (B.1.177 + start Alpha)
+# 2019-12-30 to 2020-06-30 (first lineages) + 2020-07-01 to 2020-12-31 (B.1.177 + start Alpha)
 start <- Sys.time()
-cladeScore1 <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=1e3, min_cluster_age_yrs=0.5/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2020-06-30"), branch_length_unit="days", output_dir="results/01_sc2_root_to_dec2020", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE)
+cladeScore1 <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2020-12-31"), branch_length_unit="days", output_dir="results/01_sc2_root_to_dec2020", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
-message(paste("Total time elapsed:",total_time,"mins")) # 13 mins (min_desc=10), 
+message(paste("Total time elapsed:",total_time,"mins")) # 12 mins (min_desc=10, all 2020) 
 
 # 2021-01-01 to 2021-05-31 (Alpha + Delta rapidly replacing)
 start <- Sys.time()
