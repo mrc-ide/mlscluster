@@ -328,7 +328,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		comm_coord_aadns1 <- rep(NA,length(homopl_df$defining_mut))
 		# All genomic regions + wt aa + position (without mutated aa)
 		comm_coord_aadns1[rgx_aadns != -1] <- str_sub( regmatches(homopl_df$defining_mut, rgx_aadns) , 1, -2)
-		print(comm_coord_aadns1)
+		#print(comm_coord_aadns1)
 		comm_coord_aadns1_df <- as.data.frame(comm_coord_aadns1); colnames(comm_coord_aadns1_df) <- c("prot_coord_without_mut_site")
 		homopl_df <- cbind(homopl_df, comm_coord_aadns1_df)
 		homopl_df$prot_coord_without_mut_site <- str_sub( homopl_df$defining_mut, 1, -2)
@@ -347,7 +347,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		homopl_aadns_final
 	}
 	
-	# (iii) moving window of neighbouring 3 residues
+	# Annotate homoplasies in: (iii) moving window of neighbouring 3 residues
 	.annotate_adjacent_muts_window_s3 <- function(homopl_df) {
 		window_size <- 3
 		
@@ -362,7 +362,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 			prot_len_ids[[n]] <- as.data.frame(prot_len_ids[[n]]); colnames(prot_len_ids[[n]]) <- "protein"
 			prot_windows[[n]] <- prot_len_ids[[n]]
 			for(i in 1:( nrow(prot_len_ids[[n]]) -2)) {
-				prot_windows[[n]][i:(i+window_size-1),] <- paste0(i,"-",(i+window_size-1))
+				prot_windows[[n]][i:(i+window_size-1),] <- paste0(i,"-",(i+window_size-2),"-",(i+window_size-1))
 				prot_windows[[n]] <- as.data.frame(prot_windows[[n]]); colnames(prot_windows[[n]]) <- "window"
 			}
 		}
@@ -370,10 +370,11 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		prot_windows_df <- rbindlist(prot_windows)
 		prot_len_window_combined <- cbind(prot_len_ids_df, prot_windows_df)
 		prot_len_window_combined <- data.frame(prot_len_window_combined, do.call(rbind,str_split(prot_len_window_combined$window,"-")))
-		colnames(prot_len_window_combined) <- c("protein","window","window_start","window_end")
-		prot_len_window_combined$window_start <- as.integer(prot_len_window_combined$window_start)
-		prot_len_window_combined$window_end <- as.integer(prot_len_window_combined$window_end)
-		View(prot_len_window_combined)
+		colnames(prot_len_window_combined) <- c("protein","window","window_pos1","window_pos2","window_pos3")
+		prot_len_window_combined$window_pos1 <- as.integer(prot_len_window_combined$window_pos1)
+		prot_len_window_combined$window_pos2 <- as.integer(prot_len_window_combined$window_pos2)
+		prot_len_window_combined$window_pos3 <- as.integer(prot_len_window_combined$window_pos3)
+		prot_len_window_combined <- prot_len_window_combined %>% group_by(protein) %>% mutate(window_id = rep(seq(n()), each = window_size, length = n())) %>% ungroup()
 		
 		# Get protein name of homoplasies
 		homopl_df$protein <- sub("\\:.*", "", homopl_df$defining_mut)
@@ -387,15 +388,30 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		homopl_df <- cbind(homopl_df, comm_coord_df)
 		homopl_df <- homopl_df[(homopl_df$protein != "SYNSNP"),]
 		homopl_df$mut_coord <- as.integer(homopl_df$mut_coord)
-		View(homopl_df)
+		homopl_df <- na.omit(homopl_df)
 		
-		setDT(homopl_df); setDT(prot_len_window_combined)
-		# Check if coordinate within boundaries of regions of interest (NTD, RBD, FCS)
-		homopl_df_join <- homopl_df[prot_len_window_combined, on=c("mut_coord >= window_start", "mut_coord <= window_end"), mult="all", window_mut := window] 
-		homopl_df_join <- na.omit(homopl_df_join)
-		View(homopl_df_join)
+		homopl_df_merge <- homopl_df %>% left_join(prot_len_window_combined, by="protein")
 		
-		homopl_df
+		homopl_df_merge$window_pos1_match <- ifelse(homopl_df_merge$mut_coord == homopl_df_merge$window_pos1, TRUE, FALSE)
+		homopl_df_merge$window_pos2_match <- ifelse(homopl_df_merge$mut_coord == homopl_df_merge$window_pos2, TRUE, FALSE)
+		homopl_df_merge$window_pos3_match <- ifelse(homopl_df_merge$mut_coord == homopl_df_merge$window_pos3, TRUE, FALSE)
+		
+		homopl_df_matches <- homopl_df_merge[( (homopl_df_merge$window_pos1_match == TRUE) | (homopl_df_merge$window_pos2_match == TRUE) | (homopl_df_merge$window_pos3_match == TRUE)),]
+		
+		homopl_df_matches_nodes <- homopl_df_matches %>% group_by(defining_mut) %>% summarize(nodes_homopl = paste0(unique(node), collapse="|"), Freq=length(unique(node))) %>% ungroup()
+		homopl_df_matches_nodes <- homopl_df_matches_nodes[as.numeric(homopl_df_matches_nodes$Freq) > 1,]
+		
+		homopl_df_matches_neigh_mut <- homopl_df_matches %>% inner_join(homopl_df_matches_nodes, by="defining_mut")
+		homopl_df_matches_neigh_mut <- homopl_df_matches_neigh_mut %>% select(nodes_homopl, protein, mut_coord, defining_mut, Freq, window, window_id)
+		homopl_df_matches_neigh_mut <- homopl_df_matches_neigh_mut[order(homopl_df_matches_neigh_mut$protein, as.numeric(homopl_df_matches_neigh_mut$mut_coord)),]
+		homopl_df_matches_neigh_mut$window_id2 <- paste0(homopl_df_matches_neigh_mut$protein,":",homopl_df_matches_neigh_mut$window_id)
+		
+		homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut[!duplicated(homopl_df_matches_neigh_mut[c("defining_mut","window_id2")]),] #4,8
+		homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final %>% group_by(window_id2) %>% filter(n() != 1)
+		homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final[!duplicated(homopl_df_matches_neigh_mut_final$defining_mut),]
+		homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final %>% select(nodes_homopl, defining_mut, Freq, window, window_id, window_id2)
+		
+		homopl_df_matches_neigh_mut_final
 	}
 	
 	# Plot tree with defining mutations
@@ -606,6 +622,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	stats_df_homopl1 <- stats_df_homopl1[order(stats_df_homopl1$s_mut, stats_df_homopl1$s_mut_region_interest, decreasing=TRUE),]
 	stats_df_aadns1 <- .annotate_diff_aa_mut_same_site(homoplasies1_all_tgt_nodes_df)
 	stats_df_aamw1 <- .annotate_adjacent_muts_window_s3(homoplasies1_all_tgt_nodes_df)
+	View(stats_df_aamw1)
 	
 	# Homoplasies (node detected by stat)
 	stats_df_union$node <- as.integer(stats_df_union$node)
@@ -622,7 +639,8 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	stats_df_homopl2_freq_df[is.na(stats_df_homopl2_freq_df)] = ""
 	stats_df_homopl2_freq_df <- stats_df_homopl2_freq_df[order(stats_df_homopl2_freq_df$s_mut, stats_df_homopl2_freq_df$s_mut_region_interest, decreasing=TRUE),]
 	stats_df_aadns2 <- .annotate_diff_aa_mut_same_site(homoplasies2_detect_df)
-	#stats_df_aamw2 <- .annotate_adjacent_muts_window_s3(homoplasies2_detect_df)
+	stats_df_aamw2 <- .annotate_adjacent_muts_window_s3(homoplasies2_detect_df)
+	View(stats_df_aamw2)
 	
 	# Homoplasies (node NOT detected by stat)
 	homoplasies3_not_detect <- setdiff(tgt_nodes, stats_df_union$node)
@@ -641,16 +659,20 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	stats_df_homopl3_freq_df[is.na(stats_df_homopl3_freq_df)] = ""
 	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df[order(stats_df_homopl3_freq_df$s_mut, stats_df_homopl3_freq_df$s_mut_region_interest, decreasing=TRUE),]
 	stats_df_aadns3 <- .annotate_diff_aa_mut_same_site(homoplasies3_not_detect_df)
-	#stats_df_aamw3 <- .annotate_adjacent_muts_window_s3(homoplasies3_not_detect_df)
+	stats_df_aamw3 <- .annotate_adjacent_muts_window_s3(homoplasies3_not_detect_df)
+	View(stats_df_aamw3)
 	
-	write.csv(stats_df_homopl1, file=glue('{output_dir}/homoplasy_details_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
-	write.csv(stats_df_aadns1, file=glue('{output_dir}/homoplasy_same_site_muts_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
+	write.csv(stats_df_homopl1, file=glue('{output_dir}/homoplasy_DETAILS_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
+	write.csv(stats_df_aadns1, file=glue('{output_dir}/homoplasy_SAME_SITE_muts_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
+	write.csv(stats_df_aamw1, file=glue('{output_dir}/homoplasy_NEIGHBOUR_WINDOW_muts_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
 	
-	write.csv(stats_df_homopl2_freq_df, file=glue('{output_dir}/homoplasy_details_detect_stats.csv'), quote=FALSE, row.names=FALSE)
-	write.csv(stats_df_aadns2, file=glue('{output_dir}/homoplasy_same_site_muts_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	write.csv(stats_df_homopl2_freq_df, file=glue('{output_dir}/homoplasy_DETAILS_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	write.csv(stats_df_aadns2, file=glue('{output_dir}/homoplasy_SAME_SITE_muts_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	write.csv(stats_df_aamw2, file=glue('{output_dir}/homoplasy_NEIGHBOUR_WINDOW_muts_detect_stats.csv'), quote=FALSE, row.names=FALSE)
 	
-	write.csv(stats_df_homopl3_freq_df, file=glue('{output_dir}/homoplasy_details_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
-	write.csv(stats_df_aadns3, file=glue('{output_dir}/homoplasy_same_site_muts_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	write.csv(stats_df_homopl3_freq_df, file=glue('{output_dir}/homoplasy_DETAILS_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	write.csv(stats_df_aadns3, file=glue('{output_dir}/homoplasy_SAME_SITE_muts_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	write.csv(stats_df_aamw3, file=glue('{output_dir}/homoplasy_NEIGHBOUR_WINDOW_muts_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
 	
 	message(glue("Nodes matching threshold {ifelse(threshold_keep_lower, '<', '>')} {quantile_threshold_ratio_sizes} quantile of ratio sizes: {nrow(stats_df_rs)}"))
 	message(glue("Nodes matching threshold {ifelse(threshold_keep_lower, '<', '>')} {quantile_threshold_ratio_persist_time} quantile of ratio persistence time: {nrow(stats_df_rpt)}"))
