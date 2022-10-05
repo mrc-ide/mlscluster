@@ -3,9 +3,11 @@
 .RData
 .Ruserdata
 *.Rproj
+*.pbs
 data/
 R/exercises/
 results/
 test*
 OLD*
 rds/
+*token
