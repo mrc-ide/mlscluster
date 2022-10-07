@@ -9,6 +9,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	library(ggplot2)
 	library(data.table)
 	library(dplyr)
+	library(tidyr)
 	library(stringr)
 	library(outbreakinfo) #needs libudunits2-dev and libgdal-dev (Ubuntu: sudo apt install)
 	
@@ -282,6 +283,27 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		list(defining=defining_muts, all=all_muts)
 	}
 	
+	#quantile_options <- c(1/2, 1/3, 1/4, 1/5, 1/6, 1/7, 1/8, 1/9, 1/10)
+	.extract_value_below_quantile_threshold <- function(df, var, quantile_choice, quantile_threshold) {
+		if(quantile_choice >= 1/100) {
+			quant <- quantile(as.numeric(var), probs=seq(0,1,quantile_choice)) #na.rm=TRUE
+			message("Quantiles")
+			print(quant)
+			value_chosen_quant <- unname(quant[names(quant) == quantile_threshold])
+			value_chosen_quant <- round(value_chosen_quant, digits=2)
+			message(glue("Threshold value at quantile {quantile_threshold}"))
+			message(value_chosen_quant)
+			if(threshold_keep_lower)
+				res_df <- df[(as.numeric(var) < value_chosen_quant),]
+			else {
+				res_df <- df[(as.numeric(var) > value_chosen_quant),]
+			}
+		}else {
+			stop("Choices for quantile are: {1/2, ... , 1/100}")
+		}
+		return(res_df)
+	}
+	
 	# Detect independent occurences of defining mutations (homoplasies) across different nodes
 	.find_homoplasies <- function(node_list) {
 		def_muts_nodes <- lapply( 1:length(node_list), function(tp) .node_muts(node_list[[tp]]) )
@@ -293,6 +315,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		def_muts_nodes_df <- rbindlist( lapply(def_muts_nodes, function(x) data.table(x)), idcol="node") 
 		def_muts_nodes_df <- na.omit(def_muts_nodes_df)
 		names(def_muts_nodes_df) <- c("node","defining_mut")
+		def_muts_nodes_df$defining_mut <- toupper( def_muts_nodes_df$defining_mut )
 		tab_def_muts_df <- setDT(def_muts_nodes_df)[, .(Freq_homopl = .N), by = .(defining_mut)]
 		homoplasy_count_df <- merge(def_muts_nodes_df, tab_def_muts_df, by="defining_mut")
 		homoplasy_count_df <- homoplasy_count_df[as.numeric(homoplasy_count_df$Freq_homopl) > 1,]
@@ -414,6 +437,20 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		homopl_df_matches_neigh_mut_final
 	}
 	
+	# Flag know problematic sites listed here: https://github.com/W-L/ProblematicSites_SARS-CoV2
+	.remove_known_problematic_sites <- function(homopl_df) {
+		# Process problematic sites file
+		probl_sites <- read.csv("config/problematic_sites_20221006.tsv", sep="\t", header=TRUE)
+		# Split multiple potential mutated sites (separated by commas) for each site into unique row
+		probl_sites <- probl_sites %>% mutate(aa_alt = strsplit(as.character(aa_alt), ",")) %>% unnest(aa_alt)
+		probl_sites$aa_prot_site <- toupper( paste0(probl_sites$gene,":",probl_sites$aa_ref,probl_sites$aa_pos,probl_sites$aa_alt) )
+		probl_sites <- probl_sites[probl_sites$filter == "mask",] #only removing sites flagged as 'mask'
+		
+		# Remove sites listed as mask
+		homopl_df <- dplyr::anti_join(homopl_df, probl_sites, by=c("defining_mut"="aa_prot_site"))
+		homopl_df
+	}
+	
 	# Plot tree with defining mutations
 	.cluster_tree <- function(tips) {
 		library(phangorn)
@@ -529,27 +566,6 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		}
 	}
 	
-	#quantile_options <- c(1/2, 1/3, 1/4, 1/5, 1/6, 1/7, 1/8, 1/9, 1/10)
-	.extract_value_below_quantile_threshold <- function(df, var, quantile_choice, quantile_threshold) {
-		if(quantile_choice >= 1/100) {
-			quant <- quantile(as.numeric(var), probs=seq(0,1,quantile_choice)) #na.rm=TRUE
-			message("Quantiles")
-			print(quant)
-			value_chosen_quant <- unname(quant[names(quant) == quantile_threshold])
-			value_chosen_quant <- round(value_chosen_quant, digits=2)
-			message(glue("Threshold value at quantile {quantile_threshold}"))
-			message(value_chosen_quant)
-			if(threshold_keep_lower)
-				res_df <- df[(as.numeric(var) < value_chosen_quant),]
-			else {
-				res_df <- df[(as.numeric(var) > value_chosen_quant),]
-			}
-		}else {
-			stop("Choices for quantile are: {1/2, ... , 1/100}")
-		}
-		return(res_df)
-	}
-	
 	# compute node stats based on conditions
 	tgt_nodes <- which((ndesc >= min_descendants) & (ndesc <= max_descendants) & (clade_age >= min_cluster_age_yrs))
 	message(glue("Number of target nodes: {length(tgt_nodes)}"))
@@ -624,13 +640,11 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	stats_df_union <- stats_df_union[order(as.numeric(stats_df_union$ratio_sizes), as.numeric(stats_df_union$ratio_persist_time), as.numeric(stats_df_union$logistic_growth), decreasing=TRUE),]
 	write.csv(stats_df_union, file=glue('{output_dir}/stats_union.csv'), quote=FALSE, row.names=FALSE)
 	
-	if(!dir.exists(glue("{output_dir}/global_mut_freqs/")))
-		suppressWarnings( dir.create(glue("{output_dir}/global_mut_freqs/")) )
-	
 	# Homoplasies (all target nodes considered)
 	homoplasies1_all_tgt_nodes <- data.frame(tgt_nodes); colnames(homoplasies1_all_tgt_nodes) <- c("node")
 	homoplasies1_all_tgt_nodes_df <- merge(homoplasies1_all_tgt_nodes, homoplasies, by="node", all.x=TRUE, all.y=FALSE)
 	homoplasies1_all_tgt_nodes_df <- na.omit(homoplasies1_all_tgt_nodes_df)
+	homoplasies1_all_tgt_nodes_df <- .remove_known_problematic_sites(homoplasies1_all_tgt_nodes_df)
 	stats_df_homopl_nodes1 <- homoplasies1_all_tgt_nodes_df %>% group_by(defining_mut) %>% summarize(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% ungroup()
 	stats_df_homopl1 <- merge(homoplasies1_all_tgt_nodes_df, stats_df_homopl_nodes1, by="defining_mut")
 	stats_df_homopl1 <- stats_df_homopl1[!duplicated(stats_df_homopl1$defining_mut),]
@@ -645,6 +659,10 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	
 	# Plot global prevalence of mutation for the homoplasies detected
 	if(plot_global_mut_freq) {
+		
+		if(!dir.exists(glue("{output_dir}/global_mut_freqs/")))
+			suppressWarnings( dir.create(glue("{output_dir}/global_mut_freqs/")) )
+		
 		.plot_global_mut_freqs_worldwide(stats_df_homopl1)
 		#.plot_global_mut_freqs_worldwide(stats_df_aadns1)
 		.plot_global_mut_freqs_worldwide(stats_df_aamw1)
@@ -654,6 +672,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	stats_df_union$node <- as.integer(stats_df_union$node)
 	homoplasies2_detect_df <- stats_df_union	%>% left_join(homoplasies, by="node")
 	homoplasies2_detect_df <- na.omit(homoplasies2_detect_df)
+	homoplasies2_detect_df <- .remove_known_problematic_sites(homoplasies2_detect_df)
 	stats_df_homopl_nodes2 <- homoplasies2_detect_df %>% group_by(defining_mut) %>% summarize(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% ungroup()
 	stats_df_homopl2 <- merge(homoplasies2_detect_df, stats_df_homopl_nodes2, by="defining_mut")
 	stats_df_homopl2$Freq_homopl <- NULL
@@ -673,6 +692,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	homoplasies3_not_detect <- data.frame(homoplasies3_not_detect); colnames(homoplasies3_not_detect) <- c("node")
 	homoplasies3_not_detect_df <- homoplasies3_not_detect	%>% left_join(homoplasies, by="node")
 	homoplasies3_not_detect_df <- na.omit(homoplasies3_not_detect_df)
+	homoplasies3_not_detect_df <- .remove_known_problematic_sites(homoplasies3_not_detect_df)
 	stats_df_homopl_nodes3 <- homoplasies3_not_detect_df %>% group_by(defining_mut) %>% summarize(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% ungroup()
 	stats_df_homopl3 <- merge(homoplasies3_not_detect_df, stats_df_homopl_nodes3, by="defining_mut")
 	stats_df_homopl3$Freq_homopl <- NULL
@@ -738,14 +758,14 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 
 # 2019-12-30 to 2020-06-30 (first lineages) + 2020-07-01 to 2020-12-31 (B.1.177 + start Alpha)
 start <- Sys.time()
-cladeScore1 <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2020-12-31"), branch_length_unit="days", output_dir="results/01_sc2_root_to_dec2020_mut_freqs", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE, plot_global_mut_freq=TRUE) #, ncpu=6
+cladeScore1 <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2020-12-31"), branch_length_unit="days", output_dir="results/01_sc2_root_to_dec2020_removing_artifacts", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE) #, ncpu=6
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed:",total_time,"mins")) # 12 mins (min_desc=10, all 2020) 
 
 # 2021-01-01 to 2021-05-31 (Alpha + Delta rapidly replacing)
 start <- Sys.time()
-cladeScore2 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-01-01"),max_date=as.Date("2021-05-31"),branch_length_unit="days", output_dir="results/02_sc2_jan2021_to_may2021", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=TRUE)
+cladeScore2 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-01-01"),max_date=as.Date("2021-05-31"),branch_length_unit="days", output_dir="results/02_sc2_jan2021_to_may2021_removing_artifacts", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed:",total_time,"mins")) # 80 mins
