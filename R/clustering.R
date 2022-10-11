@@ -11,12 +11,14 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	library(dplyr)
 	library(tidyr)
 	library(stringr)
-	library(outbreakinfo) #needs libudunits2-dev and libgdal-dev (Ubuntu: sudo apt install)
+	library(outbreakinfo) #if getting errors try 'sudo apt install libudunits2-dev libgdal-dev'
 	
 	# if(ncpu > 1) {
 	# 	library(foreach)
 	# 	library(doParallel)
 	# }
+	
+	# Authenticate user in GISAID if wants global prevalence of identified mutations
 	if(plot_global_mut_freq)
 		outbreakinfo::authenticateUser()
 	
@@ -330,7 +332,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		# If has homoplasy in S
 		homopl_df$s_mut <- ifelse( grepl(homopl_df$defining_mut, pattern ='^[S]:') , "Yes", "No")
 		# Get S mut coordinate only
-		rgx_s <- regexpr('^[S]:[A-Z]{1}[0-9]{1,4}[A-Z]{1}', homopl_df$defining_mut)
+		rgx_s <- regexpr('^[S]:[A-Z]{1}[0-9]{1,5}[A-Z]{1}', homopl_df$defining_mut)
 		#print(rgx_s)
 		comm_coord <- rep(NA,length(homopl_df$defining_mut))
 		comm_coord[rgx_s != -1] <- str_sub( regmatches(homopl_df$defining_mut, rgx_s) , 4, -2)
@@ -346,7 +348,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	
 	# Annotate homoplasies in: (ii) different substitutions at the same site
 	.annotate_diff_aa_mut_same_site <- function(homopl_df) {
-		rgx_aadns <- regexpr('^[A-Za-z]:[A-Z]{1}[0-9]{1,4}[A-Z]{1}', homopl_df$defining_mut)
+		rgx_aadns <- regexpr('^[A-Za-z]:[A-Z]{1}[0-9]{1,5}[A-Z]{1}', homopl_df$defining_mut)
 		#print(rgx_aadns)
 		comm_coord_aadns1 <- rep(NA,length(homopl_df$defining_mut))
 		# All genomic regions + wt aa + position (without mutated aa)
@@ -403,7 +405,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		homopl_df$protein <- sub("\\:.*", "", homopl_df$defining_mut)
 		homopl_df$protein <- toupper(homopl_df$prot)
 		
-		rgx_amw3 <- regexpr('^[A-Za-z]:[A-Z]{1}[0-9]{1,4}[A-Z]{1}', homopl_df$defining_mut)
+		rgx_amw3 <- regexpr('^[A-Za-z]:[A-Z]{1}[0-9]{1,5}[A-Z]{1}', homopl_df$defining_mut)
 		comm_coord <- rep(NA,length(homopl_df$defining_mut))
 		# Mutation coordinate of homoplasies
 		comm_coord[rgx_amw3 != -1] <- str_sub( regmatches(homopl_df$defining_mut, rgx_amw3) , 4, -2)
@@ -444,11 +446,33 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		# Split multiple potential mutated sites (separated by commas) for each site into unique row
 		probl_sites <- probl_sites %>% mutate(aa_alt = strsplit(as.character(aa_alt), ",")) %>% unnest(aa_alt)
 		probl_sites$aa_prot_site <- toupper( paste0(probl_sites$gene,":",probl_sites$aa_ref,probl_sites$aa_pos,probl_sites$aa_alt) )
-		probl_sites <- probl_sites[probl_sites$filter == "mask",] #only removing sites flagged as 'mask'
+		probl_sites <- probl_sites[probl_sites$filter == "mask",] #only removing sites flagged as 'mask' but not 'caution'
 		
 		# Remove sites listed as mask
 		homopl_df <- dplyr::anti_join(homopl_df, probl_sites, by=c("defining_mut"="aa_prot_site"))
 		homopl_df
+	}
+	
+	# Return table with already described positively selected sites (https://observablehq.com/@spond/sars-cov-2-selection-countries) that should not appear here
+	.sanity_check_positively_selected_sites <- function(homopl_df) {
+		pos_sel_sites <- read.csv("config/positive_selected_sites_20221006.tsv", sep="\t", header=TRUE)
+		pos_sel_sites$prot_site <- paste0(pos_sel_sites$protein,":",pos_sel_sites$site) 
+		
+		homopl_df$protein <- sub("\\:.*", "", homopl_df$defining_mut)
+		homopl_df$protein <- toupper(homopl_df$prot)
+		
+		rgx_scpss <- regexpr(':[A-Z]{1}[0-9]{1,5}[A-Z]{1}', homopl_df$defining_mut)
+		comm_coord <- rep(NA,length(homopl_df$defining_mut))
+		# Mutation coordinate of homoplasies
+		comm_coord[rgx_scpss != -1] <- str_sub( regmatches(homopl_df$defining_mut, rgx_scpss), 3, -2)
+		comm_coord_df <- as.data.frame(comm_coord); colnames(comm_coord_df) <- c("site")
+		homopl_df <- cbind(homopl_df, comm_coord_df)
+		homopl_df$prot_site <- paste0(homopl_df$protein,":",homopl_df$site)
+		
+		homopl_df_pss <- dplyr::inner_join(homopl_df, pos_sel_sites, by="prot_site")
+		#View(homopl_df_pss)
+		
+		homopl_df_pss
 	}
 	
 	# Plot tree with defining mutations
@@ -655,6 +679,8 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	#View(stats_df_homopl1)
 	stats_df_aadns1 <- .annotate_diff_aa_mut_same_site(homoplasies1_all_tgt_nodes_df)
 	stats_df_aamw1 <- .annotate_adjacent_muts_window_s3(homoplasies1_all_tgt_nodes_df)
+	stats_df_scpss1 <- .sanity_check_positively_selected_sites(stats_df_homopl1)
+	stats_df_scpss1 <- stats_df_scpss1[, c(1:5)]
 	#View(stats_df_aamw1)
 	
 	# Plot global prevalence of mutation for the homoplasies detected
@@ -685,6 +711,8 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	stats_df_homopl2_freq_df <- stats_df_homopl2_freq_df[order(stats_df_homopl2_freq_df$s_mut, stats_df_homopl2_freq_df$s_mut_region_interest, decreasing=TRUE),]
 	stats_df_aadns2 <- .annotate_diff_aa_mut_same_site(homoplasies2_detect_df)
 	stats_df_aamw2 <- .annotate_adjacent_muts_window_s3(homoplasies2_detect_df)
+	stats_df_scpss2 <- .sanity_check_positively_selected_sites(stats_df_homopl2_freq_df)
+	stats_df_scpss2 <- stats_df_scpss2[, c(1:19)]
 	#View(stats_df_aamw2)
 	
 	# Homoplasies (node NOT detected by stat)
@@ -706,19 +734,24 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df[order(stats_df_homopl3_freq_df$s_mut, stats_df_homopl3_freq_df$s_mut_region_interest, decreasing=TRUE),]
 	stats_df_aadns3 <- .annotate_diff_aa_mut_same_site(homoplasies3_not_detect_df)
 	stats_df_aamw3 <- .annotate_adjacent_muts_window_s3(homoplasies3_not_detect_df)
+	stats_df_scpss3 <- .sanity_check_positively_selected_sites(stats_df_homopl3_freq_df)
+	stats_df_scpss3 <- stats_df_scpss3[, c(1:5)]
 	#View(stats_df_aamw3)
 	
 	write.csv(stats_df_homopl1, file=glue('{output_dir}/homoplasy_DETAILS_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
 	write.csv(stats_df_aadns1, file=glue('{output_dir}/homoplasy_SAME_SITE_muts_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
 	write.csv(stats_df_aamw1, file=glue('{output_dir}/homoplasy_NEIGHBOUR_WINDOW_muts_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
+	write.csv(stats_df_scpss1, file=glue('{output_dir}/homoplasy_KNOWN_POSITIVELY_SELECTED_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
 	
 	write.csv(stats_df_homopl2_freq_df, file=glue('{output_dir}/homoplasy_DETAILS_detect_stats.csv'), quote=FALSE, row.names=FALSE)
 	write.csv(stats_df_aadns2, file=glue('{output_dir}/homoplasy_SAME_SITE_muts_detect_stats.csv'), quote=FALSE, row.names=FALSE)
 	write.csv(stats_df_aamw2, file=glue('{output_dir}/homoplasy_NEIGHBOUR_WINDOW_muts_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	write.csv(stats_df_scpss2, file=glue('{output_dir}/homoplasy_KNOWN_POSITIVELY_SELECTED_detect_stats.csv'), quote=FALSE, row.names=FALSE)
 	
 	write.csv(stats_df_homopl3_freq_df, file=glue('{output_dir}/homoplasy_DETAILS_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
 	write.csv(stats_df_aadns3, file=glue('{output_dir}/homoplasy_SAME_SITE_muts_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
 	write.csv(stats_df_aamw3, file=glue('{output_dir}/homoplasy_NEIGHBOUR_WINDOW_muts_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	write.csv(stats_df_scpss3, file=glue('{output_dir}/homoplasy_KNOWN_POSITIVELY_SELECTED_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
 	
 	message(glue("Nodes matching threshold {ifelse(threshold_keep_lower, '<', '>')} {quantile_threshold_ratio_sizes} quantile of ratio sizes: {nrow(stats_df_rs)}"))
 	message(glue("Nodes matching threshold {ifelse(threshold_keep_lower, '<', '>')} {quantile_threshold_ratio_persist_time} quantile of ratio persistence time: {nrow(stats_df_rpt)}"))
@@ -758,7 +791,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 
 # 2019-12-30 to 2020-06-30 (first lineages) + 2020-07-01 to 2020-12-31 (B.1.177 + start Alpha)
 start <- Sys.time()
-cladeScore1 <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2020-12-31"), branch_length_unit="days", output_dir="results/01_sc2_root_to_dec2020_removing_artifacts", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE) #, ncpu=6
+cladeScore1 <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2020-12-31"), branch_length_unit="days", output_dir="results/01_sc2_root_to_dec2020_removing_artifacts_pos_sel_sites_check", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE) #, ncpu=6
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed:",total_time,"mins")) # 12 mins (min_desc=10, all 2020) 
@@ -772,14 +805,14 @@ message(paste("Total time elapsed:",total_time,"mins")) # 80 mins
 
 # 2021-06-01 to 2021-12-31 (Delta + Omicron BA.1 rapidly replacing)
 start <- Sys.time()
-cladeScore3 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-06-01"),max_date=as.Date("2021-12-31"),branch_length_unit="days", output_dir="results/03_sc2_jun2021_to_dec2021", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=TRUE)
+cladeScore3 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-06-01"),max_date=as.Date("2021-12-31"),branch_length_unit="days", output_dir="results/03_sc2_jun2021_to_dec2021_removing_artifacts", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed:",total_time,"mins")) # 1339 mins
 
 # 2022-01-01 to 2022-04-30 (Omicron BA.1 + BA.2 rapidly replacing)
 start <- Sys.time()
-cladeScore4 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2022-01-01"),max_date=as.Date("2022-04-30"),branch_length_unit="days", output_dir="results/04_sc2_jan2022_to_apr2022", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=TRUE)
+cladeScore4 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2022-01-01"),max_date=as.Date("2022-04-30"),branch_length_unit="days", output_dir="results/04_sc2_jan2022_to_apr2022_removing_artifacts", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed:",total_time,"mins"))
