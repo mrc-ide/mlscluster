@@ -1,6 +1,8 @@
 load("rds/chron_timetree_with_regional_and_muts_md.RData")
 
-cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=NULL, max_date=NULL, branch_length_unit="years", output_dir=paste0("clade_score-",Sys.Date()), quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE) { #ncpu=1
+NCPU <- 7
+
+cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=NULL, max_date=NULL, branch_length_unit="years", output_dir=paste0("clade_score-",Sys.Date()), quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, ncpu=1) {
 	
 	library(ape)
 	library(lubridate)
@@ -13,10 +15,9 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	library(stringr)
 	library(outbreakinfo) #if getting errors try 'sudo apt install libudunits2-dev libgdal-dev'
 	
-	# if(ncpu > 1) {
-	# 	library(foreach)
-	# 	library(doParallel)
-	# }
+	if(ncpu > 1) {
+		library(pbmcapply)
+	}
 	
 	# Authenticate user in GISAID if wants global prevalence of identified mutations
 	if(plot_global_mut_freq)
@@ -89,7 +90,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		tre2 <- root(tre, outgroup=root_on_tip, resolve.root=TRUE)
 		tre <- tre2
 	}
-	message(paste0("Tips in the tree: ", length(tre$tip.label)))
+	#message(paste0("Tips in the tree: ", length(tre$tip.label)))
 	
 	# variables and data structures to quickly look up tree data
 	# based on treestructure/tfpscanner code
@@ -151,7 +152,8 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	}
 	
 	# descendant nodes including internal ones
-	descendants <- lapply(1:(ntip+nnode), function(tp) integer(Ndesc[tp]))  # pre-allocate list to fill with node descendant IDs
+	descendants <- pbmclapply(1:(ntip+nnode), function(tp) { integer(Ndesc[tp]) }, mc.cores = ncpu)
+	#descendants <- lapply(1:(ntip+nnode), function(tp) integer(Ndesc[tp]))  # pre-allocate list to fill with node descendant IDs
 	for(tp in 1:(ntip+nnode)) {
 		descendants[[tp]][1] <- tp
 	}
@@ -179,18 +181,25 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	}
 	
 	# tip labels
-	descendant_ids <- lapply(1:(ntip+nnode), function(tp) {
+	descendant_ids <- pbmclapply(1:(ntip+nnode), function(tp) {
 		na.omit(tre$tip.label[descendant_tips[[tp]]])
-	})
+	}, mc.cores = ncpu)
+	# descendant_ids <- lapply(1:(ntip+nnode), function(tp) {
+	# 	na.omit(tre$tip.label[descendant_tips[[tp]]])
+	# })
 	
 	.get_comparison_sister_node <- function(node) {
 		imed_ancestor <- tail(ancestors[[node]], 1)
 		sisters <- tre$edge[ tre$edge[,1] == imed_ancestor, 2 ]
 		comparison_node <- setdiff(sisters, node)
+		#desc_tips_sisters <- pbmclapply(1:length(sisters), function(tp) { descendant_ids[[ sisters[[tp]] ]] }, mc.cores=ncpu)
 		desc_tips_sisters <- lapply(1:length(sisters), function(tp) descendant_ids[[ sisters[[tp]] ]] )
+		#names(desc_tips_sisters) <- pbmclapply(1:length(desc_tips_sisters), function(tp) { sisters[[tp]] }, mc.cores=ncpu)
 		names(desc_tips_sisters) <- lapply(1:length(desc_tips_sisters), function(tp) sisters[[tp]] )
 		
+		#sts_tips_sisters <- pbmclapply(1:length(desc_tips_sisters), function(tp) { sts[ desc_tips_sisters[[tp]] ] }, mc.cores=ncpu )
 		sts_tips_sisters <- lapply(1:length(desc_tips_sisters), function(tp) sts[ desc_tips_sisters[[tp]] ] )
+		#names(sts_tips_sisters) <- pbmclapply(1:length(sts_tips_sisters), function(tp) { sisters[[ tp ]] }, mc.cores=ncpu)
 		names(sts_tips_sisters) <- lapply(1:length(sts_tips_sisters), function(tp) sisters[[ tp ]] )
 		
 		desc_tips_sisters_node <- unlist(unname(desc_tips_sisters[names(desc_tips_sisters) == node]))
@@ -272,17 +281,20 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		md_its <- amd[ amd$sequence_name %in% comp_res[[6]], ]
 		
 		if( nrow(md_itn) == 0 | nrow(md_its) == 0 )
-			return(list(defining=NA, all=NA))
+			return(NA)	
+		#return(list(defining=NA, all=NA))
+			
 		
 		vtab_node = sort( table( do.call( c, strsplit( md_itn[[mut_var]], split='\\|' )  ) ) / nrow( md_itn ) )
 		#print(vtab_node)
 		vtab_sister = sort( table( do.call( c, strsplit( md_its[[mut_var]], split='\\|' )  ) ) / nrow( md_its ) )
 		#print(vtab_sister)
 		
-		all_muts <- names(vtab_node[vtab_node > defining_mut_threshold])
+		#all_muts <- names(vtab_node[vtab_node > defining_mut_threshold])
 		defining_muts <- setdiff( names(vtab_node[vtab_node > defining_mut_threshold]), names(vtab_sister[vtab_sister > defining_mut_threshold]) )
 		
-		list(defining=defining_muts, all=all_muts)
+		#list(defining=defining_muts, all=all_muts)
+		defining_muts
 	}
 	
 	#quantile_options <- c(1/2, 1/3, 1/4, 1/5, 1/6, 1/7, 1/8, 1/9, 1/10)
@@ -308,19 +320,30 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	
 	# Detect independent occurences of defining mutations (homoplasies) across different nodes
 	.find_homoplasies <- function(node_list) {
-		def_muts_nodes <- lapply( 1:length(node_list), function(tp) .node_muts(node_list[[tp]]) )
-		names(def_muts_nodes) <- lapply( 1:length(node_list), function(tp) node_list[[tp]] )
+		start <- Sys.time()
+		#def_muts_nodes <- lapply( 1:length(node_list), function(tp) .node_muts(node_list[[tp]]) )
+		def_muts_nodes <- pbmclapply(1:length(node_list), function(tp) { .node_muts(node_list[[tp]]) }, mc.cores = ncpu)
+		end <- Sys.time(); total_time <- as.numeric (end - start, units = "mins")
+		message(paste("Total time elapsed (1: def_muts_nodes):",total_time,"mins"))
 		
-		def_muts_nodes <- sapply(def_muts_nodes, "[[",1)
-		def_muts_nodes <- lapply(def_muts_nodes, function(x) if(identical(x, character(0))) NA_character_ else x)
+		names(def_muts_nodes) <- pbmclapply( 1:length(node_list), function(tp) { node_list[[tp]] }, mc.cores=ncpu )
+		#names(def_muts_nodes) <- lapply( 1:length(node_list), function(tp) node_list[[tp]] )
 		
-		def_muts_nodes_df <- rbindlist( lapply(def_muts_nodes, function(x) data.table(x)), idcol="node") 
+		# def_muts_nodes <- sapply(def_muts_nodes, "[[",1)
+		#def_muts_nodes <- lapply(def_muts_nodes, function(x) if(identical(x, character(0))) NA_character_ else x)
+		
+		def_muts_nodes_df <- rbindlist( lapply(def_muts_nodes, function(x) { data.table(x) }), idcol="node")
+		
 		def_muts_nodes_df <- na.omit(def_muts_nodes_df)
 		names(def_muts_nodes_df) <- c("node","defining_mut")
 		def_muts_nodes_df$defining_mut <- toupper( def_muts_nodes_df$defining_mut )
+		
 		tab_def_muts_df <- setDT(def_muts_nodes_df)[, .(Freq_homopl = .N), by = .(defining_mut)]
+		
 		homoplasy_count_df <- merge(def_muts_nodes_df, tab_def_muts_df, by="defining_mut")
+		
 		homoplasy_count_df <- homoplasy_count_df[as.numeric(homoplasy_count_df$Freq_homopl) > 1,]
+		
 		homoplasy_count_df$node <- as.integer(homoplasy_count_df$node)
 		
 		homoplasy_count_df
@@ -470,7 +493,6 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		homopl_df$prot_site <- paste0(homopl_df$protein,":",homopl_df$site)
 		
 		homopl_df_pss <- dplyr::inner_join(homopl_df, pos_sel_sites, by="prot_site")
-		#View(homopl_df_pss)
 		
 		homopl_df_pss
 	}
@@ -512,11 +534,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 			aas <- aas[,order(sites)]
 			aas[is.na(aas)] <- "X"
 			sites <- sort(sites)
-			# aas1 <- as.AAbin(aas)
-			# print(aas1)
-			# print(class(aas1))
 			aas2 <- as.phyDat(aas)
-			#print(aas2)
 			ap <- ancestral.pars(tr, aas2, return="phyDat")
 			ap1 <- as.character(ap)
 			for(e in postorder(tr)) {
@@ -581,7 +599,6 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		homopl_df$protein <- sub("\\:.*", "", homopl_df$defining_mut)
 		homopl_df <- homopl_df[(homopl_df$protein != "SYNSNP"),]
 		homopl_df <- homopl_df[(homopl_df$protein != "ORF1AB"),]
-		#View(homopl_df)
 		
 		for(i in 1:nrow(homopl_df)) {
 			mut_freq <- getPrevalence(mutations = homopl_df[i,2], logInfo=FALSE)
@@ -596,35 +613,38 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	message("Target nodes are:")
 	print(tgt_nodes)
 	homoplasies <- .find_homoplasies(tgt_nodes) # will consider homoplasies only for nodes passing number of descendants and clade age filters
+	
+	message("Populating list of statistic results")
 	st0 <- st1 <- st2 <- st3 <- st4 <- comb_stats <- list()
 	for(n in 1:(ntip+nnode)) {
 		if(n <= (ntip+1)) {
-			st0[[n]] <- st1[[n]] <- st2[[n]] <- st3[[n]] <- st4[[n]] <- -1
+			st0 <- st1 <- st2 <- st3 <- st4 <- -1
 		}else {
-			if(n %% 1000 == 0) message(glue("Progress: {n} / {(ntip+nnode)}"))
+			if(n %% 10000 == 0) message(glue("Progress: {n} / {(ntip+nnode)}"))
 			sisters <- .get_comparison_sister_node(n)[[1]]
 			if(!is.null(sisters)) {
 				if(n %in% tgt_nodes) {
-					st0[[n]] <- .node_muts(n)
-					st1[[n]] <- .ratio_sizes_stat(n)
-					st2[[n]] <- .ratio_persist_time_stat(n)
-					st3[[n]] <- .logistic_growth_stat(n)
-					st4[[n]] <- ""
+					st0 <- .node_muts(n)
+					st1 <- .ratio_sizes_stat(n)
+					st2 <- .ratio_persist_time_stat(n)
+					st3 <- .logistic_growth_stat(n)
+					st4 <- ""
 					if(n %in% homoplasies$node) {
-						st4[[n]] <- "Yes"
+						st4 <- "Yes"
 					}else{
-						st4[[n]] <- "No"
+						st4 <- "No"
 					}
-					comb_stats[[n]] <- cbind(n, paste(st0[[n]]$defining, collapse="|"), sisters[1], sisters[2], st1[[n]][1], st1[[n]][2], st1[[n]][3], st2[[n]][1], st2[[n]][2], st2[[n]][3], st2[[n]][4], st3[[n]][,1], st3[[n]][,2], st4[[n]]) #st3[[n]][,3]
+					#st0[[n]]$defining
+					comb_stats[[n]] <- cbind(n, paste(st0, collapse="|"), sisters[1], sisters[2], st1[1], st1[2], st1[3], st2[1], st2[2], st2[3], st2[4], st3[,1], st3[,2], st4) #st3[[n]][,3]
 				}else {
 					comb_stats[[n]] <- cbind(n, "", sisters[1], sisters[2], -1,-1,-1,-1,-1,-1,-1,-1,-1, "No")
-					comb_stats[[n]] <- as.data.frame(comb_stats[[n]])
+					#comb_stats[[n]] <- as.data.frame(comb_stats[[n]])
 				}
 				rownames(comb_stats[[n]]) <- NULL
 			}
 		}
 	}
-	
+
 	stats_df <- as.data.frame(do.call(rbind, comb_stats))
 	colnames(stats_df) <- c("node","defining_muts","comp_sister1","comp_sister2","size1","size2","ratio_sizes","min_time_node","max_time1","max_time2","ratio_persist_time","logistic_growth", "logistic_growth_p", "homoplasies") #"diff_time_sister1","diff_time_sister2", "control_clade(s)"
 	
@@ -771,11 +791,6 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 			ggtr <- .cluster_tree(tips)
 			suppressMessages(ggsave(ggtr, file=glue("{output_dir}/node_specific/{stats_df_union[i,1]}_clust_tree.pdf"),height=max(6, floor(length(tips) / 5 )), width = min(44, max(24, sqrt(length(tips)))), limitsize = FALSE  ))
 		}
-		# else {
-		# 	ggtr <- ggtree(tre, mrsd=max_date) + scale_x_continuous(expand = c(0, 0)) + theme_tree2(axis.text.x=element_text(size=5, angle=45, vjust=1, hjust=1))
-		# 	ggtr_p1 <- zoomClade(ggtr, node=stats_df_union[i,1])
-		# 	suppressMessages( ggsave(file=glue('{output_dir}/node_specific/{stats_df_union[i,1]}_zoomed_tree.pdf'), plot=ggtr_p1, dpi=600, limitsize=FALSE) )
-		# }
 		tips_df <- amd[ amd$sequence_name %in% tips, ]
 		write.csv(tips_df, file=glue('{output_dir}/node_specific/{stats_df_union[i,1]}_sequences.csv'), quote=FALSE, row.names=FALSE)
 		lineage_summary <- .lineage_summary(tips=tips)
@@ -791,38 +806,38 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 
 # 2019-12-30 to 2020-06-30 (first lineages) + 2020-07-01 to 2020-12-31 (B.1.177 + start Alpha)
 start <- Sys.time()
-cladeScore1 <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2020-12-31"), branch_length_unit="days", output_dir="results/01_sc2_root_to_dec2020_removing_artifacts_pos_sel_sites_check", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE) #, ncpu=6
+cladeScore1 <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2020-12-31"), branch_length_unit="days", output_dir="results/01_sc2_root_to_dec2020", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, ncpu=NCPU) #, ncpu=6
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
-message(paste("Total time elapsed:",total_time,"mins")) # 12 mins (min_desc=10, all 2020) 
+message(paste("Total time elapsed:",total_time,"mins")) # 11.88 mins (ncpu=7)
 
 # 2021-01-01 to 2021-05-31 (Alpha + Delta rapidly replacing)
 start <- Sys.time()
-cladeScore2 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-01-01"),max_date=as.Date("2021-05-31"),branch_length_unit="days", output_dir="results/02_sc2_jan2021_to_may2021_removing_artifacts", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE)
+cladeScore2 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-01-01"),max_date=as.Date("2021-05-31"),branch_length_unit="days", output_dir="results/02_sc2_jan2021_to_may2021", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, ncpu=NCPU)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
-message(paste("Total time elapsed:",total_time,"mins")) # 80 mins
+message(paste("Total time elapsed:",total_time,"mins")) # 67 mins (ncpu=31)
 
 # 2021-06-01 to 2021-12-31 (Delta + Omicron BA.1 rapidly replacing)
 start <- Sys.time()
-cladeScore3 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-06-01"),max_date=as.Date("2021-12-31"),branch_length_unit="days", output_dir="results/03_sc2_jun2021_to_dec2021_removing_artifacts", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE)
+cladeScore3 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-06-01"),max_date=as.Date("2021-12-31"),branch_length_unit="days", output_dir="results/03_sc2_jun2021_to_dec2021", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, ncpu=NCPU)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
-message(paste("Total time elapsed:",total_time,"mins")) # 1339 mins
+message(paste("Total time elapsed:",total_time,"mins")) # 729 mins (ncpu=31)
 
 # 2022-01-01 to 2022-04-30 (Omicron BA.1 + BA.2 rapidly replacing)
 start <- Sys.time()
-cladeScore4 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2022-01-01"),max_date=as.Date("2022-04-30"),branch_length_unit="days", output_dir="results/04_sc2_jan2022_to_apr2022_removing_artifacts", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE)
+cladeScore4 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2022-01-01"),max_date=as.Date("2022-04-30"),branch_length_unit="days", output_dir="results/04_sc2_jan2022_to_apr2022", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, ncpu=NCPU)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
-message(paste("Total time elapsed:",total_time,"mins"))
+message(paste("Total time elapsed:",total_time,"mins")) # 304 mins (ncpu=31)
 
 # Whole tree period (2019-12-30 to 2022-04-30)
 start <- Sys.time()
-cladeScore_all <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2022-04-30"),branch_length_unit="days", output_dir="results/05_sc2_whole_period", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE)
+cladeScore_all <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2022-04-30"),branch_length_unit="days", output_dir="results/05_sc2_whole_period", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, ncpu=NCPU)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
-message(paste("Total time elapsed:",total_time,"mins"))
+message(paste("Total time elapsed:",total_time,"mins")) # 4637 mins = 77.28 hours = 3.22 days (ncpu=31)
 
 saveRDS(cladeScore1, "rds/results/period2019-2020.rds")
 saveRDS(cladeScore2, "rds/results/periodjan2021-may2021.rds")
