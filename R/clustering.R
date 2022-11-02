@@ -1,8 +1,9 @@
 load("rds/chron_timetree_with_regional_and_muts_md.RData")
 
 NCPU <- 7
+options(scipen=999)
 
-cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=NULL, max_date=NULL, branch_length_unit="years", output_dir=paste0("clade_score-",Sys.Date()), quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, ncpu=1) {
+cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=NULL, max_date=NULL, branch_length_unit="years", output_dir=paste0("clade_score-",Sys.Date()), quantile_choice=1/100, quantile_threshold_ratio_sizes=1, quantile_threshold_ratio_persist_time=1, quantile_threshold_logit_growth=1, threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, write_node_specific_tables=FALSE, ncpu=1) {
 	
 	library(ape)
 	library(lubridate)
@@ -25,8 +26,10 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	
 	class(tre) <- "phylo"
 	
-	if (!dir.exists(output_dir))
-		suppressWarnings( dir.create(output_dir) )
+	# if (!dir.exists(output_dir))
+	system(glue("mkdir -p {output_dir}"))
+		#dir.create(output_dir) #suppressWarnings
+	#dir.create(file.path(getwd(), output_dir), recursive = TRUE)
 	
 	max_time <- Inf
 	if(!is.null(max_date))
@@ -298,9 +301,9 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	}
 	
 	#quantile_options <- c(1/2, 1/3, 1/4, 1/5, 1/6, 1/7, 1/8, 1/9, 1/10)
-	.extract_value_below_quantile_threshold <- function(df, var, quantile_choice, quantile_threshold) {
-		if(quantile_choice >= 1/100) {
-			quant <- quantile(as.numeric(var), probs=seq(0,1,quantile_choice)) #na.rm=TRUE
+	.extract_value_below_quantile_threshold <- function(df, var, quantile_choice_user, quantile_threshold) {
+		if(quantile_choice_user >= 1/400) {
+			quant <- quantile(as.numeric(var), probs=seq(0,1,quantile_choice_user)) #na.rm=TRUE
 			message("Quantiles")
 			print(quant)
 			value_chosen_quant <- unname(quant[names(quant) == quantile_threshold])
@@ -313,7 +316,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 				res_df <- df[(as.numeric(var) > value_chosen_quant),]
 			}
 		}else {
-			stop("Choices for quantile are: {1/2, ... , 1/100}")
+			stop("Choices for quantile are: {1/2, ... , 1/400}")
 		}
 		return(res_df)
 	}
@@ -353,10 +356,9 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	.annotate_s_homoplasies <- function(homopl_df) {
 		regions_s <- read.csv("config/spike_regions.tsv", sep="\t", header=TRUE)
 		# If has homoplasy in S
-		homopl_df$s_mut <- ifelse( grepl(homopl_df$defining_mut, pattern ='^[S]:') , "Yes", "No")
+		homopl_df$s_mut <- ifelse( grepl(homopl_df$defining_mut, pattern ='^[S]:') , "yes", "no")
 		# Get S mut coordinate only
 		rgx_s <- regexpr('^[S]:[A-Z]{1}[0-9]{1,5}[A-Z]{1}', homopl_df$defining_mut)
-		#print(rgx_s)
 		comm_coord <- rep(NA,length(homopl_df$defining_mut))
 		comm_coord[rgx_s != -1] <- str_sub( regmatches(homopl_df$defining_mut, rgx_s) , 4, -2)
 		comm_coord <- as.integer(comm_coord)
@@ -372,11 +374,9 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	# Annotate homoplasies in: (ii) different substitutions at the same site
 	.annotate_diff_aa_mut_same_site <- function(homopl_df) {
 		rgx_aadns <- regexpr('^[A-Za-z]:[A-Z]{1}[0-9]{1,5}[A-Z]{1}', homopl_df$defining_mut)
-		#print(rgx_aadns)
 		comm_coord_aadns1 <- rep(NA,length(homopl_df$defining_mut))
 		# All genomic regions + wt aa + position (without mutated aa)
 		comm_coord_aadns1[rgx_aadns != -1] <- str_sub( regmatches(homopl_df$defining_mut, rgx_aadns) , 1, -2)
-		#print(comm_coord_aadns1)
 		comm_coord_aadns1_df <- as.data.frame(comm_coord_aadns1); colnames(comm_coord_aadns1_df) <- c("prot_coord_without_mut_site")
 		homopl_df <- cbind(homopl_df, comm_coord_aadns1_df)
 		homopl_df$prot_coord_without_mut_site <- str_sub( homopl_df$defining_mut, 1, -2)
@@ -386,12 +386,14 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		homopl_aadns$mut_site <- str_sub( homopl_aadns$defining_mut, -1, -1)
 		# Filter repeated rows
 		homopl_aadns <- homopl_aadns[!duplicated(homopl_aadns$defining_mut),]
-		homopl_aadns_freq <- homopl_aadns %>% group_by(prot_coord_without_mut_site) %>% summarise(Freq=n(), diff_mutated_aa=paste0(na.omit(mut_site), collapse="|"))
+		#homopl_aadns_freq <- homopl_aadns %>% group_by(prot_coord_without_mut_site) %>% summarise(Freq=n(), diff_mutated_aa=paste0(na.omit(mut_site), collapse="|"))
+		homopl_aadns_freq <- homopl_aadns %>% group_by(prot_coord_without_mut_site) %>% summarise(Freq_homopl=n())
 		homopl_aadns_final <- merge(homopl_aadns, homopl_aadns_freq, by="prot_coord_without_mut_site")
-		homopl_aadns_final <- homopl_aadns_final %>% select(nodes_homopl, prot_coord_without_mut_site, diff_mutated_aa, Freq)
+		homopl_aadns_final <- homopl_aadns_final %>% select(nodes_homopl, prot_coord_without_mut_site, defining_mut, Freq_homopl.x) #diff_mutated_aa
 		homopl_aadns_final <- homopl_aadns_final[!duplicated(homopl_aadns_final$prot_coord_without_mut_site),]
-		homopl_aadns_final <- homopl_aadns_final[as.numeric(homopl_aadns_final$Freq) > 1,]
-
+		homopl_aadns_final <- homopl_aadns_final[as.numeric(homopl_aadns_final$Freq_homopl.x) > 1,]
+		homopl_aadns_final <- homopl_aadns_final %>% select(nodes_homopl, defining_mut, Freq_homopl.x)
+		
 		homopl_aadns_final
 	}
 	
@@ -446,20 +448,23 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		
 		homopl_df_matches <- homopl_df_merge[( (homopl_df_merge$window_pos1_match == TRUE) | (homopl_df_merge$window_pos2_match == TRUE) | (homopl_df_merge$window_pos3_match == TRUE)),]
 		
-		homopl_df_matches_nodes <- homopl_df_matches %>% group_by(defining_mut) %>% summarize(nodes_homopl = paste0(unique(node), collapse="|"), Freq=length(unique(node))) %>% ungroup()
-		homopl_df_matches_nodes <- homopl_df_matches_nodes[as.numeric(homopl_df_matches_nodes$Freq) > 1,]
+		homopl_df_matches_nodes <- homopl_df_matches %>% group_by(defining_mut) %>% summarize(nodes_homopl = paste0(unique(node), collapse="|"), Freq_homopl=length(unique(node))) %>% ungroup()
+		homopl_df_matches_nodes <- homopl_df_matches_nodes[as.numeric(homopl_df_matches_nodes$Freq_homopl) > 1,]
 		
 		homopl_df_matches_neigh_mut <- homopl_df_matches %>% inner_join(homopl_df_matches_nodes, by="defining_mut")
-		homopl_df_matches_neigh_mut <- homopl_df_matches_neigh_mut %>% select(nodes_homopl, protein, mut_coord, defining_mut, Freq, window, window_id)
+		homopl_df_matches_neigh_mut <- homopl_df_matches_neigh_mut %>% select(nodes_homopl, protein, mut_coord, defining_mut, Freq_homopl.x, window, window_id)
 		homopl_df_matches_neigh_mut <- homopl_df_matches_neigh_mut[order(homopl_df_matches_neigh_mut$protein, as.numeric(homopl_df_matches_neigh_mut$mut_coord)),]
-		homopl_df_matches_neigh_mut$window_id2 <- paste0(homopl_df_matches_neigh_mut$protein,":",homopl_df_matches_neigh_mut$window_id)
-		
-		homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut[!duplicated(homopl_df_matches_neigh_mut[c("defining_mut","window_id2")]),] #4,8
-		homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final %>% group_by(window_id2) %>% filter(n() != 1)
-		homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final[!duplicated(homopl_df_matches_neigh_mut_final$defining_mut),]
-		homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final %>% select(nodes_homopl, defining_mut, Freq, window, window_id, window_id2)
-		
-		homopl_df_matches_neigh_mut_final
+		if(nrow(homopl_df_matches_neigh_mut) != 0) { #!is.null(homopl_df_matches_neigh_mut)
+			homopl_df_matches_neigh_mut$window_id2 <- paste0(homopl_df_matches_neigh_mut$protein,":",homopl_df_matches_neigh_mut$window_id)
+			homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut[!duplicated(homopl_df_matches_neigh_mut[c("defining_mut","window_id2")]),] #4,8
+			homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final %>% group_by(window_id2) %>% filter(n() != 1)
+			homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final[!duplicated(homopl_df_matches_neigh_mut_final$defining_mut),]
+			homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final %>% select(nodes_homopl, defining_mut, Freq_homopl.x, window, window_id, window_id2)
+			return(homopl_df_matches_neigh_mut_final)
+		}else {
+			homopl_df_matches_neigh_mut_final <- data.frame(nodes_homopl=c(NA),defining_mut=c(NA),Freq_homopl.x=c(NA),window=c(NA),window_id=c(NA),window_id2=c(NA))
+			return(homopl_df_matches_neigh_mut_final)
+		}
 	}
 	
 	# Flag know problematic sites listed here: https://github.com/W-L/ProblematicSites_SARS-CoV2
@@ -630,14 +635,14 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 					st3 <- .logistic_growth_stat(n)
 					st4 <- ""
 					if(n %in% homoplasies$node) {
-						st4 <- "Yes"
+						st4 <- "yes"
 					}else{
-						st4 <- "No"
+						st4 <- "no"
 					}
 					#st0[[n]]$defining
 					comb_stats[[n]] <- cbind(n, paste(st0, collapse="|"), sisters[1], sisters[2], st1[1], st1[2], st1[3], st2[1], st2[2], st2[3], st2[4], st3[,1], st3[,2], st4) #st3[[n]][,3]
 				}else {
-					comb_stats[[n]] <- cbind(n, "", sisters[1], sisters[2], -1,-1,-1,-1,-1,-1,-1,-1,-1, "No")
+					comb_stats[[n]] <- cbind(n, "", sisters[1], sisters[2], -1,-1,-1,-1,-1,-1,-1,-1,-1, "no")
 					#comb_stats[[n]] <- as.data.frame(comb_stats[[n]])
 				}
 				rownames(comb_stats[[n]]) <- NULL
@@ -656,19 +661,28 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	write.csv(stats_df_unfilt, file=glue('{output_dir}/stats_unfiltered.csv'), quote=FALSE, row.names=FALSE)
 	
 	# ratio sizes threshold
+	quantile_threshold_ratio_sizes <- paste0(quantile_threshold_ratio_sizes,"%")
 	stats_df_rs_all <- .extract_value_below_quantile_threshold(stats_df_unfilt, stats_df_unfilt$ratio_sizes, quantile_choice, quantile_threshold_ratio_sizes)
+	#stats_df_rs_all <- stats_df_rs_all[stats_df_rs_all$homoplasies=="yes",]
 	stats_df_rs <- stats_df_rs_all[, c(1:7,14)]
 	write.csv(stats_df_rs, file=glue('{output_dir}/stats_ratio_size_threshold.csv'), quote=FALSE, row.names=FALSE)
 	
 	# ratio persistence time threshold
+	quantile_threshold_ratio_persist_time <- paste0(quantile_threshold_ratio_persist_time,"%")
 	stats_df_rpt_all <- .extract_value_below_quantile_threshold(stats_df_unfilt, stats_df_unfilt$ratio_persist_time, quantile_choice, quantile_threshold_ratio_persist_time)
 	stats_df_rpt_all <- stats_df_rpt_all[order(as.numeric(stats_df_rpt_all$ratio_persist_time), decreasing=TRUE),]
+	#stats_df_rpt_all <- stats_df_rpt_all[stats_df_rpt_all$homoplasies=="yes",]
 	stats_df_rpt <- stats_df_rpt_all[, c(1:4,8:11,14)]
 	write.csv(stats_df_rpt, file=glue('{output_dir}/stats_ratio_persist_time_threshold.csv'), quote=FALSE, row.names=FALSE)
 	
 	# logistic growth p-filtered
-	stats_df_lg_p <- stats_df_unfilt[(stats_df_unfilt$logistic_growth_p > -1) & (stats_df_unfilt$logistic_growth_p <= 0.05),]
-	stats_df_lg_p_all <- stats_df_lg_p[order(as.numeric(stats_df_lg_p$logistic_growth), decreasing=TRUE),]
+	quantile_threshold_logit_growth <- paste0(quantile_threshold_logit_growth,"%") #added
+	stats_df_lg_p_all <- stats_df_unfilt[(stats_df_unfilt$logistic_growth_p > -1) & (stats_df_unfilt$logistic_growth_p <= 0.05),] #stats_df_lg_p <-
+	# TODO include here quantile_threshold call to `.extract_value_below_quantile_threshold` and add parameter to main function
+	stats_df_lg_p_all <- .extract_value_below_quantile_threshold(stats_df_lg_p_all, stats_df_lg_p_all$logistic_growth, quantile_choice, quantile_threshold_logit_growth) #added
+	stats_df_lg_p_all <- stats_df_lg_p_all[order(as.numeric(stats_df_lg_p_all$logistic_growth), decreasing=TRUE),]
+	stats_df_lg_p_all <- na.omit(stats_df_lg_p_all)
+	#stats_df_lg_p_all <- stats_df_lg_p_all[stats_df_lg_p_all$homoplasies=="yes",]
 	stats_df_lg_p <- stats_df_lg_p_all[, c(1,12:13,14)] #1:3,13:14
 	write.csv(stats_df_lg_p, file=glue('{output_dir}/stats_logit_growth_p_threshold.csv'), quote=FALSE, row.names=FALSE)
 	
@@ -679,8 +693,18 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	write.csv(stats_df_intersect, file=glue('{output_dir}/stats_intersection.csv'), quote=FALSE, row.names=FALSE)
 	
 	# Get union between applied filters to plot trees starting on node
-	stats_df_union <- rbind(stats_df_rs_all,stats_df_rpt_all,stats_df_lg_p_all)
-	stats_df_union <- unique(stats_df_union); rownames(stats_df_union) <- NULL
+	#stats_df_union <- rbind(stats_df_rs_all,stats_df_rpt_all,stats_df_lg_p_all)
+	stats_df_rs_all <- as.data.frame(stats_df_rs_all); stats_df_rpt_all <- as.data.frame(stats_df_rpt_all); stats_df_lg_p_all <- as.data.frame(stats_df_lg_p_all)
+	if(nrow(stats_df_rs_all) != 0)
+		colnames(stats_df_rs_all) <- c("node","defining_muts","comp_sister1","comp_sister2","size1","size2","ratio_sizes","min_time_node","max_time1","max_time2","ratio_persist_time","logistic_growth","logistic_growth_p","homoplasies")
+	if(nrow(stats_df_rpt_all) != 0)
+		colnames(stats_df_rpt_all) <- c("node","defining_muts","comp_sister1","comp_sister2","size1","size2","ratio_sizes","min_time_node","max_time1","max_time2","ratio_persist_time","logistic_growth","logistic_growth_p","homoplasies")
+	if(nrow(stats_df_lg_p_all) != 0)
+		colnames(stats_df_lg_p_all) <- c("node","defining_muts","comp_sister1","comp_sister2","size1","size2","ratio_sizes","min_time_node","max_time1","max_time2","ratio_persist_time","logistic_growth","logistic_growth_p","homoplasies")
+	
+	#stats_df_union <- rbindlist(list(stats_df_rs_all, stats_df_rpt_all, stats_df_lg_p_all), use.names=TRUE) 
+	stats_df_union <- bind_rows(stats_df_rs_all, stats_df_rpt_all, stats_df_lg_p_all)
+	#stats_df_union <- unique(stats_df_union); rownames(stats_df_union) <- NULL
 	stats_df_union <- stats_df_union[order(as.numeric(stats_df_union$ratio_sizes), as.numeric(stats_df_union$ratio_persist_time), as.numeric(stats_df_union$logistic_growth), decreasing=TRUE),]
 	write.csv(stats_df_union, file=glue('{output_dir}/stats_union.csv'), quote=FALSE, row.names=FALSE)
 	
@@ -696,12 +720,11 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	stats_df_homopl1 <- stats_df_homopl1 %>% select(nodes_homopl, defining_mut, Freq_homopl, s_mut,	s_mut_region_interest)
 	stats_df_homopl1[is.na(stats_df_homopl1)] = ""
 	stats_df_homopl1 <- stats_df_homopl1[order(stats_df_homopl1$s_mut, stats_df_homopl1$s_mut_region_interest, decreasing=TRUE),]
-	#View(stats_df_homopl1)
 	stats_df_aadns1 <- .annotate_diff_aa_mut_same_site(homoplasies1_all_tgt_nodes_df)
 	stats_df_aamw1 <- .annotate_adjacent_muts_window_s3(homoplasies1_all_tgt_nodes_df)
 	stats_df_scpss1 <- .sanity_check_positively_selected_sites(stats_df_homopl1)
-	stats_df_scpss1 <- stats_df_scpss1[, c(1:5)]
-	#View(stats_df_aamw1)
+	stats_df_scpss1 <- stats_df_scpss1[, c(1:7)]
+	#stats_df_homopl1$indep_found_pos_selection <- ifelse(stats_df_homopl1$defining_mut %in% stats_df_scpss1$defining_mut, "yes", "no")
 	
 	# Plot global prevalence of mutation for the homoplasies detected
 	if(plot_global_mut_freq) {
@@ -729,11 +752,23 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	stats_df_homopl2_freq_df <- stats_df_homopl2_freq_df[, c(2:3,1,15:17,18,20,4:14)]
 	stats_df_homopl2_freq_df[is.na(stats_df_homopl2_freq_df)] = ""
 	stats_df_homopl2_freq_df <- stats_df_homopl2_freq_df[order(stats_df_homopl2_freq_df$s_mut, stats_df_homopl2_freq_df$s_mut_region_interest, decreasing=TRUE),]
+	# id_homopl_cat -> 1: 01_all_and_s_annots, 2: 02_diff_homopl_site_site, 3: 03_homopl_3_site_window
+	#stats_df_homopl2_freq_df$id_homopl_cat <- 1 #01_all_and_s_annots
+	stats_df_homopl2_freq_df$is_clustered <- 1
 	stats_df_aadns2 <- .annotate_diff_aa_mut_same_site(homoplasies2_detect_df)
+	if(nrow(stats_df_aadns2) != 0) {
+		# stats_df_aadns2$id_homopl_cat <- 2 #02_diff_homopl_site_site
+		stats_df_aadns2$is_clustered <- 1
+	}
 	stats_df_aamw2 <- .annotate_adjacent_muts_window_s3(homoplasies2_detect_df)
+	if(nrow(stats_df_aamw2) != 0) { #!is.null(stats_df_aamw2)
+		# stats_df_aamw2$id_homopl_cat <- 3 #03_homopl_3_site_window
+		stats_df_aamw2$is_clustered <- 1
+	# }else {
+	# 	stats_df_aamw2$is_clustered <- NA
+	}
 	stats_df_scpss2 <- .sanity_check_positively_selected_sites(stats_df_homopl2_freq_df)
-	stats_df_scpss2 <- stats_df_scpss2[, c(1:19)]
-	#View(stats_df_aamw2)
+	stats_df_scpss2 <- stats_df_scpss2[, c(1:21)]
 	
 	# Homoplasies (node NOT detected by stat)
 	homoplasies3_not_detect <- setdiff(tgt_nodes, stats_df_union$node)
@@ -752,11 +787,108 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df %>% select(nodes_homopl, defining_mut, Freq_homopl, s_mut, s_mut_region_interest)
 	stats_df_homopl3_freq_df[is.na(stats_df_homopl3_freq_df)] = ""
 	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df[order(stats_df_homopl3_freq_df$s_mut, stats_df_homopl3_freq_df$s_mut_region_interest, decreasing=TRUE),]
+	# stats_df_homopl3_freq_df$id_homopl_cat <- 1 #01_all_and_s_annots
+	stats_df_homopl3_freq_df$is_clustered <- 0
 	stats_df_aadns3 <- .annotate_diff_aa_mut_same_site(homoplasies3_not_detect_df)
+	# stats_df_aadns3$id_homopl_cat <- 2 #02_diff_homopl_same_site
+	stats_df_aadns3$is_clustered <- 0
 	stats_df_aamw3 <- .annotate_adjacent_muts_window_s3(homoplasies3_not_detect_df)
+	# stats_df_aamw3$id_homopl_cat <- 3 #03_homopl_3_site_window
+	stats_df_aamw3$is_clustered <- 0
 	stats_df_scpss3 <- .sanity_check_positively_selected_sites(stats_df_homopl3_freq_df)
-	stats_df_scpss3 <- stats_df_scpss3[, c(1:5)]
-	#View(stats_df_aamw3)
+	stats_df_scpss3 <- stats_df_scpss3[, c(1:7)]
+	
+	# Join friendly dfs for statistical analysis
+	prot_lengths <- read.csv("config/aa_length_prots.tsv", sep="\t", header=TRUE)
+	prot_lengths$protein <- toupper(prot_lengths$protein)
+	
+	if(nrow(stats_df_homopl2_freq_df) != 0) {
+		stats_df_homopl2_freq_df_cp <- stats_df_homopl2_freq_df %>% select(nodes_homopl,defining_mut,Freq_homopl,is_clustered,s_mut_region_interest) #id_homopl_cat
+		stats_df_homopl2_freq_df_cp <- stats_df_homopl2_freq_df_cp[!duplicated(stats_df_homopl2_freq_df_cp$defining_mut),]
+	}else {
+		stats_df_homopl2_freq_df_cp <- data.frame(nodes_homopl=c(NA),defining_mut=c(NA),Freq_homopl=c(NA),is_clustered=c(NA),s_mut_region_interest=c(NA))
+	}
+	
+	if(nrow(stats_df_homopl3_freq_df) != 0) {
+		stats_df_homopl3_freq_df_cp <- stats_df_homopl3_freq_df %>% select(nodes_homopl,defining_mut,Freq_homopl,is_clustered,s_mut_region_interest) #id_homopl_cat
+	}else {
+		stats_df_homopl3_freq_df_cp <- data.frame(nodes_homopl=c(NA),defining_mut=c(NA),Freq_homopl=c(NA),is_clustered=c(NA),s_mut_region_interest=c(NA))
+	}
+	#stats_df_aadns2_cp <- stats_df_aadns2 %>% select(nodes_homopl,defining_mut,Freq_homopl.x,id_homopl_cat,is_clustered)
+	# if(nrow(stats_df_aadns2) == 0)
+	# 	stats_df_aadns2_cp <- data.frame(nodes_homopl="",defining_mut="",Freq_homopl.x=-1,id_homopl_cat=-1,is_clustered=-1)
+	# else
+	# 	stats_df_aadns2_cp <- stats_df_aadns2 %>% select(nodes_homopl,defining_mut,Freq_homopl.x,id_homopl_cat,is_clustered)
+	# 
+	if(nrow(stats_df_aadns2) != 0) {
+		stats_df_aadns2_cp <- stats_df_aadns2 %>% select(nodes_homopl,defining_mut,Freq_homopl.x,is_clustered) #id_homopl_cat
+		stats_df_aadns2_cp <- stats_df_aadns2_cp[!duplicated(stats_df_aadns2_cp$defining_mut),]
+		stats_df_aadns2_cp$s_mut_region_interest <- ""
+		colnames(stats_df_aadns2_cp) <- c("nodes_homopl","defining_mut","Freq_homopl","is_clustered","s_mut_region_interest") #"id_homopl_cat"
+	}
+	
+	if(nrow(stats_df_aadns3) != 0) {
+		stats_df_aadns3_cp <- stats_df_aadns3 %>% select(nodes_homopl,defining_mut,Freq_homopl.x,is_clustered) #id_homopl_cat
+		stats_df_aadns3_cp$s_mut_region_interest <- ""
+		colnames(stats_df_aadns3_cp) <-  c("nodes_homopl","defining_mut","Freq_homopl","is_clustered","s_mut_region_interest") #"id_homopl_cat"
+	}
+	
+	stats_df_aamw2_cp <- data.frame()
+	if(nrow(stats_df_aamw2) != 0) {
+		#stats_df_aamw2_cp <- stats_df_aamw2 %>% select(nodes_homopl,defining_mut,Freq_homopl.x,is_clustered) #id_homopl_cat
+		stats_df_aamw2_cp <- stats_df_aamw2[, c(1:3, 7)] #5
+		#stats_df_aamw2_cp <-  stats_df_aamw2_cp[, c(1,4)] #5
+		stats_df_aamw2_cp <- stats_df_aamw2_cp[!duplicated(stats_df_aamw2_cp$defining_mut),]
+		stats_df_aamw2_cp$s_mut_region_interest <- ""
+		colnames(stats_df_aamw2_cp) <- c("nodes_homopl","defining_mut","Freq_homopl","is_clustered","s_mut_region_interest") #"id_homopl_cat"
+	}else {
+		stats_df_aamw2_cp <- data.frame(nodes_homopl=c(""),defining_mut=c(""),Freq_homopl.x=c(""),is_clustered=c(""),s_mut_region_interest=c(""))
+	}
+	
+	if(nrow(stats_df_aamw3) != 0) {
+		stats_df_aamw3 <- as.data.frame(stats_df_aamw3)
+		stats_df_aamw3_cp <- stats_df_aamw3[, c(1:3,7)] #6, 7:8
+		stats_df_aamw3_cp$s_mut_region_interest <- ""
+		colnames(stats_df_aamw3_cp) <- c("nodes_homopl","defining_mut","Freq_homopl","is_clustered","s_mut_region_interest") #"id_homopl_cat"
+	}
+	
+	# if(nrow(stats_df_aadns2_cp) != 0)
+	# 	colnames(stats_df_aadns2_cp) <- c("nodes_homopl","defining_mut","Freq_homopl","is_clustered") #"id_homopl_cat"
+	# if(nrow(stats_df_aamw2_cp) != 0)
+	# 	colnames(stats_df_aamw2_cp) <- c("nodes_homopl","defining_mut","Freq_homopl","is_clustered") #"id_homopl_cat"
+	
+	#clustered_df <- do.call("rbind", list(stats_df_homopl2_freq_df_cp, stats_df_homopl3_freq_df_cp, stats_df_aadns2_cp, stats_df_aadns3_cp, stats_df_aamw2_cp, stats_df_aamw3_cp))
+	#clustered_df <- bind_rows(stats_df_homopl2_freq_df_cp, stats_df_homopl3_freq_df_cp, stats_df_aadns2_cp, stats_df_aadns3_cp, stats_df_aamw2_cp, stats_df_aamw3_cp)
+	clustered_df <- rbindlist(list(stats_df_homopl2_freq_df_cp, stats_df_homopl3_freq_df_cp, stats_df_aadns2_cp, stats_df_aadns3_cp, stats_df_aamw2_cp, stats_df_aamw3_cp), fill = TRUE)
+	clustered_df$protein <- sub("\\:.*", "", clustered_df$defining_mut)
+	clustered_df$protein <- toupper(clustered_df$prot)
+	clustered_df <- clustered_df %>% inner_join(prot_lengths, by="protein")
+	clustered_df$syn_non_syn <- ifelse(clustered_df$protein == "SYNSNP", "syn", "non-syn")
+	#clustered_df <- clustered_df[!duplicated(clustered_df$defining_mut),]
+	#clustered_df_all <- clustered_df %>% select(defining_mut,Freq_homopl,nodes_homopl,id_homopl_cat,is_clustered,syn_non_syn,s_mut_region_interest,protein,aa_length)
+	# does not include `id_homopl_cat` column below
+	#clustered_df <- clustered_df[, c(1:8)] #1:5,8:10
+	clustered_df <- clustered_df %>% select(defining_mut,Freq_homopl,nodes_homopl,is_clustered,syn_non_syn,s_mut_region_interest,protein,aa_length)
+	clustered_df <- clustered_df %>% mutate_all(na_if,"")
+	
+	# Make known positively selection dfs compatible to create column stating whether this was independently found under selection
+	stats_df_scpss2_cp <- stats_df_scpss2[!duplicated(stats_df_scpss2$defining_mut),]
+	stats_df_scpss2_cp <- stats_df_scpss2_cp %>% select(nodes_homopl,defining_mut,Freq_homopl,s_mut,s_mut_region_interest,is_clustered) #id_homopl_cat
+	stats_df_scpss_join <- rbindlist(list(stats_df_scpss2_cp, stats_df_scpss3), fill=TRUE)
+	
+	clustered_df$indep_found_pos_selection <- ifelse(clustered_df$defining_mut %in% stats_df_scpss_join$defining_mut, "yes", "no")
+	# remove duplicates coming from different homoplasy categories
+	clustered_df <- clustered_df[!duplicated(clustered_df$defining_mut)]
+	#clustered_contingency_tab <- table(clustered_df[,c("defining_mut","id_homopl_cat","id_clustered")]) # TODO how to include Freqs (3d conting table?)
+	clustered_contingency_tab <- xtabs(Freq_homopl ~ defining_mut+is_clustered, data=clustered_df) #id_homopl_cat
+	clustered_contingency_tab <- as.data.frame(clustered_contingency_tab)
+	clustered_contingency_tab <- clustered_contingency_tab[as.integer(clustered_contingency_tab$Freq) > 0,]
+	#is_clustered_contingency_tab <- clustered_contingency_tab[clustered_contingency_tab$is_clustered == 1,]
+	#is_not_clustered_contingency_tab <- clustered_contingency_tab[clustered_contingency_tab$is_clustered == 0,]
+	write.csv(clustered_df, file=glue('{output_dir}/clustered_all_df.csv'), quote=FALSE, row.names=FALSE)
+	write.csv(clustered_contingency_tab, file=glue('{output_dir}/clustered_contingency_df.csv'), quote=FALSE, row.names=FALSE)
+	#write.csv(is_clustered_contingency_tab, file=glue('{output_dir}/is_clustered_contingency_df.csv'), quote=FALSE, row.names=FALSE)
+	#write.csv(is_not_clustered_contingency_tab, file=glue('{output_dir}/is_not_clustered_contingency_df.csv'), quote=FALSE, row.names=FALSE)
 	
 	write.csv(stats_df_homopl1, file=glue('{output_dir}/homoplasy_DETAILS_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
 	write.csv(stats_df_aadns1, file=glue('{output_dir}/homoplasy_SAME_SITE_muts_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
@@ -779,62 +911,68 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	message(glue("Nodes matching all thresholds: {nrow(stats_df_intersect)}"))
 	message(glue("Nodes matching at least one threshold: {nrow(stats_df_union)}"))
 	
-	if(!dir.exists(glue("{output_dir}/node_specific/")))
-		suppressWarnings( dir.create(glue("{output_dir}/node_specific/")) )
-	
-	message(glue("Plotting trees + sequences + lineage + region summaries for nodes matching at least one of the thresholds..."))
-	# Only plotting annotated trees, lineage and region summaries for nodes passing at least 1 of 3 criteria
-	for(i in 1:nrow(stats_df_union)) { #length(tgt_nodes)
-		comp_res <- .get_comparison_sister_node(as.numeric(stats_df_union[i,1]))
-		tips <- c(comp_res[[5]], comp_res[[6]])
-		if(compute_tree_annots) {
-			ggtr <- .cluster_tree(tips)
-			suppressMessages(ggsave(ggtr, file=glue("{output_dir}/node_specific/{stats_df_union[i,1]}_clust_tree.pdf"),height=max(6, floor(length(tips) / 5 )), width = min(44, max(24, sqrt(length(tips)))), limitsize = FALSE  ))
+	if(write_node_specific_tables) { # only plots node specific tables if change this flag to TRUE
+		if(!dir.exists(glue("{output_dir}/node_specific/")))
+			suppressWarnings( dir.create(glue("{output_dir}/node_specific/")) )
+		
+		message(glue("Plotting trees + sequences + lineage + region summaries for nodes matching at least one of the thresholds..."))
+		# Only plotting annotated trees, lineage and region summaries for nodes passing at least 1 of 3 criteria
+		for(i in 1:nrow(stats_df_union)) { #length(tgt_nodes)
+			comp_res <- .get_comparison_sister_node(as.numeric(stats_df_union[i,1]))
+			tips <- c(comp_res[[5]], comp_res[[6]])
+			if(compute_tree_annots) { # tree annotations will only be computed if `write_node_specific_tables`==TRUE AND `compute_tree_annots`==TRUE
+				ggtr <- .cluster_tree(tips)
+				suppressMessages(ggsave(ggtr, file=glue("{output_dir}/node_specific/{stats_df_union[i,1]}_clust_tree.pdf"),height=max(6, floor(length(tips) / 5 )), width = min(44, max(24, sqrt(length(tips)))), limitsize = FALSE  ))
+			}
+			tips_df <- amd[ amd$sequence_name %in% tips, ]
+			write.csv(tips_df, file=glue('{output_dir}/node_specific/{stats_df_union[i,1]}_sequences.csv'), quote=FALSE, row.names=FALSE)
+			lineage_summary <- .lineage_summary(tips=tips)
+			write.csv(lineage_summary, file=glue('{output_dir}/node_specific/{stats_df_union[i,1]}_lineage_summary.csv'), quote=FALSE, row.names=FALSE)
+			region_summary <- .region_summary(tips=tips)
+			write.csv(region_summary, file=glue('{output_dir}/node_specific/{stats_df_union[i,1]}_region_summary.csv'), quote=FALSE, row.names=FALSE)
 		}
-		tips_df <- amd[ amd$sequence_name %in% tips, ]
-		write.csv(tips_df, file=glue('{output_dir}/node_specific/{stats_df_union[i,1]}_sequences.csv'), quote=FALSE, row.names=FALSE)
-		lineage_summary <- .lineage_summary(tips=tips)
-		write.csv(lineage_summary, file=glue('{output_dir}/node_specific/{stats_df_union[i,1]}_lineage_summary.csv'), quote=FALSE, row.names=FALSE)
-		region_summary <- .region_summary(tips=tips)
-		write.csv(region_summary, file=glue('{output_dir}/node_specific/{stats_df_union[i,1]}_region_summary.csv'), quote=FALSE, row.names=FALSE)
 	}
+	#message(paste0("Number of descendants vector length: ", length(ndesc)))
 	
-	message(paste0("Number of descendants vector length: ", length(ndesc)))
-	
-	return(stats_df)
+	return(clustered_contingency_tab)
 }
+
+# library(glue)
+# range_thresholds <- c(0.25, 0.5, 0.75, 1, 2, 3, 4, 5, 10, 25, 50) #75, 90, 95, 99
+# quantile_choices <- c(1/400, 1/200, 1/400, 1/100, 2/100, 3/100, 4/100, 5/100, 1/10, 1/4, 1/2)
 
 # 2019-12-30 to 2020-06-30 (first lineages) + 2020-07-01 to 2020-12-31 (B.1.177 + start Alpha)
 start <- Sys.time()
-cladeScore1 <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2020-12-31"), branch_length_unit="days", output_dir="results/01_sc2_root_to_dec2020", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, ncpu=NCPU) #, ncpu=6
+cladeScore1 <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2020-12-31"), branch_length_unit="days", output_dir="results/01_sc2_root_to_dec2020", quantile_choice=1/100, quantile_threshold_ratio_sizes=1, quantile_threshold_ratio_persist_time=1, quantile_threshold_logit_growth=1, threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, write_node_specific_tables=FALSE, ncpu=NCPU)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed:",total_time,"mins")) # 11.88 mins (ncpu=7)
 
 # 2021-01-01 to 2021-05-31 (Alpha + Delta rapidly replacing)
 start <- Sys.time()
-cladeScore2 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-01-01"),max_date=as.Date("2021-05-31"),branch_length_unit="days", output_dir="results/02_sc2_jan2021_to_may2021", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, ncpu=NCPU)
+cladeScore2 <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-01-01"), max_date=as.Date("2021-05-31"), branch_length_unit="days", output_dir=glue("results/02_sc2_jan2021_to_may2021"), quantile_choice=1/100, quantile_threshold_ratio_sizes=1, quantile_threshold_ratio_persist_time=1, quantile_threshold_logit_growth=1, threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, write_node_specific_tables=FALSE, ncpu=NCPU)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed:",total_time,"mins")) # 67 mins (ncpu=31)
 
+# TODO from here: how to optimise?
 # 2021-06-01 to 2021-12-31 (Delta + Omicron BA.1 rapidly replacing)
 start <- Sys.time()
-cladeScore3 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-06-01"),max_date=as.Date("2021-12-31"),branch_length_unit="days", output_dir="results/03_sc2_jun2021_to_dec2021", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, ncpu=NCPU)
+cladeScore3 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2021-06-01"),max_date=as.Date("2021-12-31"),branch_length_unit="days", output_dir="results/03_sc2_jun2021_to_dec2021", quantile_choice=1/100, quantile_threshold_ratio_sizes=1, quantile_threshold_ratio_persist_time=1, quantile_threshold_logit_growth=1, threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, write_node_specific_tables=FALSE, ncpu=NCPU)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed:",total_time,"mins")) # 729 mins (ncpu=31)
 
 # 2022-01-01 to 2022-04-30 (Omicron BA.1 + BA.2 rapidly replacing)
 start <- Sys.time()
-cladeScore4 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2022-01-01"),max_date=as.Date("2022-04-30"),branch_length_unit="days", output_dir="results/04_sc2_jan2022_to_apr2022", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, ncpu=NCPU)
+cladeScore4 <- cladeScore(sc2_tre, sc2_md, min_descendants=100, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2022-01-01"),max_date=as.Date("2022-04-30"),branch_length_unit="days", output_dir="results/04_sc2_jan2022_to_apr2022", quantile_choice=1/100, quantile_threshold_ratio_sizes=1, quantile_threshold_ratio_persist_time=1, quantile_threshold_logit_growth=1, threshold_keep_lower=TRUE,  defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, write_node_specific_tables=FALSE, ncpu=NCPU)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed:",total_time,"mins")) # 304 mins (ncpu=31)
 
 # Whole tree period (2019-12-30 to 2022-04-30)
 start <- Sys.time()
-cladeScore_all <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2022-04-30"),branch_length_unit="days", output_dir="results/05_sc2_whole_period", quantile_choice=1/100, quantile_threshold_ratio_sizes="1%", quantile_threshold_ratio_persist_time="1%", threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, ncpu=NCPU)
+cladeScore_all <- cladeScore(sc2_tre, sc2_md, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=as.Date("2019-12-30"), max_date=as.Date("2022-04-30"),branch_length_unit="days", output_dir="results/05_sc2_whole_period", quantile_choice=1/100, quantile_threshold_ratio_sizes=1, quantile_threshold_ratio_persist_time=1, quantile_threshold_logit_growth=1, threshold_keep_lower=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995,compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, write_node_specific_tables=FALSE, ncpu=NCPU)
 end <- Sys.time()
 total_time <- as.numeric (end - start, units = "mins")
 message(paste("Total time elapsed:",total_time,"mins")) # 4637 mins = 77.28 hours = 3.22 days (ncpu=31)
