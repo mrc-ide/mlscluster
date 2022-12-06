@@ -230,7 +230,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 			length_sisters <- c(-1, -1)
 		}
 		
-		ratio_sizes <- round( length_sisters[1] / length_sisters[2], digits=2)
+		ratio_sizes <- round( length_sisters[1] / length_sisters[2], digits=5)
 		res_ratio_sizes <- c(length_sisters, ratio_sizes)
 		return(res_ratio_sizes)
 	}
@@ -252,7 +252,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 		}
 		#print(persist_time)
 		
-		ratio_persist_time <- round( persist_time[1] / persist_time[2], digits=2)
+		ratio_persist_time <- round( persist_time[1] / persist_time[2], digits=5)
 		res_ratio_persist_time <- c(tmrca[node], max_persist_time, ratio_persist_time)
 		
 		return(res_ratio_persist_time)
@@ -307,7 +307,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 			message("Quantiles")
 			print(quant)
 			value_chosen_quant <- unname(quant[names(quant) == quantile_threshold])
-			value_chosen_quant <- round(value_chosen_quant, digits=2)
+			value_chosen_quant <- round(value_chosen_quant, digits=5)
 			message(glue("Threshold value at quantile {quantile_threshold}"))
 			message(value_chosen_quant)
 			if(threshold_keep_lower)
@@ -655,7 +655,7 @@ cladeScore <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_c
 	
 	# Filter and write to CSV files
 	# unfiltered output (just removing filtered based on overall min_descendants => -1 on all values)
-	stats_df_unfilt <- stats_df[(stats_df$ratio_sizes > 1),]
+	stats_df_unfilt <- stats_df[(stats_df$ratio_sizes > 0) & (stats_df$ratio_persist_time > 0),]
 	# stats_df_unfilt <- as.data.table(stats_df_unfilt)
 	stats_df_unfilt <- stats_df_unfilt[order(as.numeric(stats_df_unfilt$ratio_sizes), as.numeric(stats_df_unfilt$ratio_persist_time), as.numeric(stats_df_unfilt$logistic_growth), decreasing=TRUE),]
 	write.csv(stats_df_unfilt, file=glue('{output_dir}/stats_unfiltered.csv'), quote=FALSE, row.names=FALSE)
