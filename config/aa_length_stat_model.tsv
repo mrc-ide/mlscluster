@@ -50,5 +50,6 @@
 "ORF7A"	121	"ORF7A"
 "ORF7B"	43	"ORF7B"
 "ORF8"	121	"ORF8"
-"N"	419	"N"
+"N:Linker_domain"	7	"N"
+"N"	413	"N"
 "ORF10"	38	"ORF10"

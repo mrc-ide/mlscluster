@@ -5,9 +5,11 @@
 *.Rproj
 *.pbs
 data/
-R/exercises/
+R/hpc/
 results/
+stat_results/
 test*
 OLD*
+OLDER*
 rds/
 *token
