@@ -15,7 +15,8 @@ include_major_lineage_column <- function(md_df) {
 	md_df$major_lineage <- ifelse(grepl("^A\\.", md_df$major_lineage), "Other", as.character(md_df$major_lineage))
 	md_df$major_lineage <- ifelse(grepl("^A$", md_df$major_lineage), "Other", as.character(md_df$major_lineage))
 	md_df$major_lineage <- ifelse(grepl("B\\.1\\.617", md_df$major_lineage), "Delta_other", as.character(md_df$major_lineage))
-	md_df$major_lineage <- ifelse(grepl("B\\.1\\.351", md_df$major_lineage), "Beta_B.1.351", as.character(md_df$major_lineage))
+	md_df$major_lineage <- ifelse(grepl("B\\.1\\.351", md_df$major_lineage), "Other", as.character(md_df$major_lineage))
+	#md_df$major_lineage <- ifelse(grepl("B\\.1\\.351", md_df$major_lineage), "Beta_B.1.351", as.character(md_df$major_lineage)) # OLD subdivision
 	md_df$major_lineage <- ifelse(grepl("^B\\.1\\.1\\.7$", md_df$major_lineage), "Alpha_B.1.1.7", as.character(md_df$major_lineage))
 	md_df$major_lineage <- ifelse(grepl("^B\\.1\\.177", md_df$major_lineage), "EU1_B.1.177", as.character(md_df$major_lineage))
 	md_df$major_lineage <- ifelse(grepl("^B$", md_df$major_lineage), "Other", as.character(md_df$major_lineage))
@@ -29,7 +30,8 @@ include_major_lineage_column <- function(md_df) {
 	#md_df$major_lineage <- ifelse(grepl("^BA\\.5", md_df$major_lineage), "Omicron_BA.5.*", as.character(md_df$major_lineage))
 	md_df$major_lineage <- ifelse(grepl("^C|^W|^P\\.2", md_df$major_lineage), "Other", as.character(md_df$major_lineage))
 	#md_df$major_lineage <- ifelse(grepl("^W", md_df$major_lineage), "W.*", as.character(md_df$major_lineage))
-	md_df$major_lineage <- ifelse(grepl("^P\\.1", md_df$major_lineage), "Gamma_P.1", as.character(md_df$major_lineage))
+	#md_df$major_lineage <- ifelse(grepl("^P\\.1", md_df$major_lineage), "Gamma_P.1", as.character(md_df$major_lineage)) # OLD subdivision
+	md_df$major_lineage <- ifelse(grepl("^P\\.1", md_df$major_lineage), "Other", as.character(md_df$major_lineage))
 	#md_df$major_lineage <- ifelse(grepl("^P\\.2", md_df$major_lineage), "Zeta P.2", as.character(md_df$major_lineage))
 	md_df$major_lineage <- ifelse(grepl("^(AV\\.|AT\\.|BB\\.|D\\.|G\\.|L\\.|N\\.|M\\.|P\\.|Q\\.|R\\.|S\\.|U\\.|V\\.|Unassigned|Y\\.|Z\\.)", md_df$major_lineage), "Other", as.character(md_df$major_lineage))
 	md_df$major_lineage <- ifelse(grepl("^B\\.1\\.1\\.[1-9]{1,3}", md_df$major_lineage), "Other", as.character(md_df$major_lineage))

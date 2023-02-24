@@ -11,5 +11,6 @@ stat_results/
 test*
 OLD*
 OLDER*
+inkscape/
 rds/
 *token
