@@ -6,7 +6,11 @@ library(ggplot2)
 library(tidyr)
 library(tidyverse)
 library(ggrepel)
+library(ggforce)
 library(viridis)
+library(ggpubr)
+library(htmlwidgets) #install.packages("htmlwidgets")
+library(plotly)
 #library(emmeans) #install.packages("emmeans")
 # library(ggpubr)
 # library(rstatix)
@@ -14,8 +18,8 @@ library(viridis)
 
 #load(file="rds/env.RData")
 
-# Palette for thresholds
-pal_thresholds <- c("#1984c5", "#22a7f0", "#63bff0", "#a7d5ed", "#f0f8ff", "#ffcccb", "#e1a692", "#de6e56", "#e14b31", "#c23728") # removed e2e2e2
+# Palette for thresholds (OLD: f0f8ff)
+pal_thresholds <- c("#1984c5", "#22a7f0", "#63bff0", "#a7d5ed", "#cbfeff", "#ffcccb", "#e1a692", "#de6e56", "#e14b31", "#c23728") # removed e2e2e2
 
 # Palette for major_lineages
 pal_lineages <- c("#fd7f6f", "#7eb0d5", "#b2e061", "#bd7ebe", "#ffb55a", "#ffee65", "#fdcce5") #removed "#beb9db", "#8bd3c7"
@@ -30,7 +34,7 @@ lvls_nonsyn_proteins_annots <- c("NSP1","NSP2","NSP3","NSP4","NSP5","NSP6","NSP7
 lvls_nonsyn_proteins <- c("NSP1","NSP2","NSP3","NSP4","NSP5","NSP6","NSP7","NSP8","NSP9","NSP10","NSP12","NSP13","NSP14","NSP15","NSP16",
 																																	"S","ORF3A","E","M","ORF6","ORF7A","ORF7B","ORF8","N","ORF10")
 
-# lvls_major_lineages <- 
+lvls_bubble <- c("ORF1AB","S","ORF3A","E","M","ORF6","ORF7A","ORF7B","ORF8","N","ORF10")
 
 # Load config csv's
 seq_muts_df_counts <- readRDS("rds/polymorphic_site_counts.rds")
@@ -38,6 +42,7 @@ pos_sel_sites <- read.csv("config/positive_selected_sites_20221006.tsv", sep="\t
 pos_sel_sites$prot_site <- paste0(pos_sel_sites$protein,":",pos_sel_sites$site)
 annot_gen_range_positions <- read.csv("config/aa_ranges_stat_model.tsv",sep="\t")
 annot_gen_length_positions <- read.csv("config/aa_length_stat_model.tsv",sep="\t")
+# TODO? load aa_nt_length_exclude_fdr.tsv and aa_nt_ranges_exclude_fdr.tsv  when have logic to exclude homopls co-ocurrying between SYN and NON-SYN (FDR)
 
 #seq_muts_df_counts_adj <- seq_muts_df_counts %>% select(mut_and_type, protein, aa_length, syn_non_syn)
 
@@ -270,39 +275,49 @@ bubble_plots_replacements_lineages <- function(df, show_replacements=TRUE, out_s
 		most_common_lineages_norep[[i]] <- most_common_lineages_rep[[i]]
 		
 		if(show_replacements) {
-			ggplot(most_common_lineages_rep[[i]], aes(x=as.factor(threshold), y=defining_mut, size=Freq_homopl)) +
+			p <- ggplot(most_common_lineages_rep[[i]], aes(x=as.factor(threshold), y=defining_mut, size=Freq_homopl)) +
 				geom_point(alpha=0.5) + labs(x="Quantile threshold", y="Homoplasy", title=glue("Lineage {major_lineages[i]}")) + theme_minimal() + theme(axis.text.y=element_text(size=5)) +
 				scale_size_area(name="Homoplasy frequency") #+ scale_color_manual(values=c("#7c9885","#e1ad01"), name="Analysis identified")
-			ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/repl_thr_lineage_{major_lineages[i]}.png"), width=12, height=15, dpi=600, bg="white")
+			ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/repl_thr_lineage_{major_lineages[i]}.png"), plot=p, width=12, height=15, dpi=600, bg="white")
+			
+			p_ia <- ggplotly(p)
+			htmlwidgets::saveWidget(p_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/repl_thr_lineage_{major_lineages[i]}.html"))
 			
 			most_common_lineages_rep_first[[i]] <- most_common_lineages_rep[[i]]
 			most_common_lineages_rep_first[[i]] <- most_common_lineages_rep_first[[i]] %>% distinct() %>% group_by(defining_mut) %>% slice_min(n=1, as.numeric(threshold))
 			
-			ggplot(most_common_lineages_rep_first[[i]], aes(x=as.factor(threshold), y=defining_mut, size=Freq_homopl)) +
+			p2 <- ggplot(most_common_lineages_rep_first[[i]], aes(x=as.factor(threshold), y=defining_mut, size=Freq_homopl)) +
 				geom_point(alpha=0.5) + labs(x="Quantile threshold (first detected only)", y="Homoplasy", title=glue("Lineage {major_lineages[i]}")) + theme_minimal() + theme(axis.text.y=element_text(size=5)) +
 				scale_size_area(name="Homoplasy frequency") #+ scale_color_manual(values=c("#7c9885","#e1ad01"), name="Analysis identified")
-			ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/repl_first_detected_thr_lineage_{major_lineages[i]}.png"), width=12, height=15, dpi=600, bg="white")
+			ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/repl_first_detected_thr_lineage_{major_lineages[i]}.png"), plot=p2, width=12, height=15, dpi=600, bg="white")
+			
+			p2_ia <- ggplotly(p2)
+			htmlwidgets::saveWidget(p2_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/repl_first_detected_thr_lineage_{major_lineages[i]}.html"))
 		} else {
 			
-			ggplot(most_common_lineages_norep[[i]], aes(x=as.factor(threshold), y=prot_site, size=Freq_homopl, color=analysis_identified.y)) +
+			p3 <- ggplot(most_common_lineages_norep[[i]], aes(x=as.factor(threshold), y=prot_site, size=Freq_homopl, color=analysis_identified.y)) +
 				geom_point(alpha=0.5) + labs(x="Quantile threshold", y="Protein site", title=glue("Lineage {major_lineages[i]}")) + theme_minimal() + theme(axis.text.y=element_text(size=5)) +
 				scale_size_area(name="Homoplasy frequency") + scale_color_manual(values=c("#7c9885","#e1ad01"), name="Analysis identified")
-			ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/onlysite_thr_lineage_{major_lineages[i]}.png"), width=12, height=15, dpi=600, bg="white")
+			ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/onlysite_thr_lineage_{major_lineages[i]}.png"), plot=p3, width=12, height=15, dpi=600, bg="white")
+			p3_ia <- ggplotly(p3)
+			htmlwidgets::saveWidget(p3_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/onlysite_thr_lineage_{major_lineages[i]}.html"))
 			
 			most_common_lineages_norep_first[[i]] <- most_common_lineages_norep[[i]]
 			most_common_lineages_norep_first[[i]] <- most_common_lineages_norep_first[[i]] %>% distinct() %>% group_by(prot_site) %>% slice_min(n=1, as.numeric(threshold))
 			
-			ggplot(most_common_lineages_norep_first[[i]], aes(x=as.factor(threshold), y=prot_site, size=Freq_homopl, color=analysis_identified.y)) +
+			p4 <- ggplot(most_common_lineages_norep_first[[i]], aes(x=as.factor(threshold), y=prot_site, size=Freq_homopl, color=analysis_identified.y)) +
 				geom_point(alpha=0.5) + labs(x="Quantile threshold (first detected only)", y="Protein site", title=glue("Lineage {major_lineages[i]}")) + theme_minimal() + theme(axis.text.y=element_text(size=5)) +
 				scale_size_area(name="Homoplasy frequency") + scale_color_manual(values=c("#7c9885","#e1ad01"), name="Analysis identified")
-			ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/onlysite_first_detected_thr_lineage_{major_lineages[i]}.png"), width=12, height=15, dpi=600, bg="white")
+			ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/onlysite_first_detected_thr_lineage_{major_lineages[i]}.png"), plot=p4, width=12, height=15, dpi=600, bg="white")
+			p4_ia <- ggplotly(p4)
+			htmlwidgets::saveWidget(p4_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/onlysite_first_detected_thr_lineage_{major_lineages[i]}.html"))
 		}
 	
 	}
 		
 }
 
-bubble_plots <- function(most_common_homopl_df, out_suffix) {
+bubble_plots <- function(most_common_homopl_df, mut_type, out_suffix) {
 	# prepare dfs for bubble plot selection analysis from HypHy identified mutations
 	pos_sel_sites2 <- pos_sel_sites %>% select(protein, site, prot_site)
 	pos_sel_sites2$analysis_identified <- "HyPhy"
@@ -326,13 +341,29 @@ bubble_plots <- function(most_common_homopl_df, out_suffix) {
 	#unique(joined_most_common_indep1$analysis_identified)
 	joined_most_common_indep_ok <- joined_most_common_indep %>% inner_join(joined_most_common_indep1, by="prot_site")
 	
+	if(mut_type=="non-syn") {
+		joined_most_common_indep_ok$protein <- factor(joined_most_common_indep_ok$protein, levels=lvls_bubble)
+		#joined_most_common_indep_ok$protein <- factor(joined_most_common_indep_ok$protein, levels=joined_most_common_indep_ok$protein[ order( unique(as.numeric(joined_most_common_indep_ok$site)) ) ])
+		joined_most_common_indep_ok <- joined_most_common_indep_ok[order(joined_most_common_indep_ok$protein, as.numeric(joined_most_common_indep_ok$site) ),]
+		joined_most_common_indep_ok$prot_site <- factor(joined_most_common_indep_ok$prot_site, levels=unique( joined_most_common_indep_ok$prot_site[order(joined_most_common_indep_ok$protein, as.numeric(joined_most_common_indep_ok$site) )] ))
+		View(joined_most_common_indep_ok)
+	}
+	
+	
 	system(glue("mkdir -p stat_results/{out_folder}/comparison_bubble_{out_suffix}/"))
 	
-	# Plot homoplasic sites identified (3 categories: (i) HyPhy, (ii) HyPhy;TreeBasedClustering, (iii) TreeBasedClustering)
-	ggplot(joined_most_common_indep_ok, aes(y=prot_site, x=analysis_identified.y, color=analysis_identified.y)) + #color=analysis_identified.y
-		geom_point(alpha=0.8) + labs(y="Protein site", x="Analyses identified") + theme_minimal() +
-		scale_color_manual(values=c("#7c9885","#e1ad01", "#033f63")) + theme(legend.position="none", axis.text.y=element_text(size=5), aspect.ratio=16/9)
-	ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/homopl_method_combinations.png"), width=12, height=15, dpi=600, bg="white")
+	# OLD Plot homoplasic sites identified (3 categories: (i) HyPhy, (ii) HyPhy;TreeBasedClustering, (iii) TreeBasedClustering)
+	# ggplot(joined_most_common_indep_ok, aes(y=prot_site, x=analysis_identified.y, color=analysis_identified.y)) + #color=analysis_identified.y
+	# 	geom_point(alpha=0.8) + labs(y="Protein site", x="Analyses identified") + theme_minimal() +
+	# 	scale_color_manual(values=c("#7c9885","#e1ad01", "#033f63")) + theme(legend.position="none", axis.text.y=element_text(size=5)) #, aspect.ratio=16/9
+	# ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/homopl_method_combinations.png"), width=12, height=15, dpi=900, bg="white")
+	
+	p <- ggplot(joined_most_common_indep_ok, aes(y=analysis_identified.y, x=prot_site, color=analysis_identified.y)) + #color=analysis_identified.y
+		geom_point(alpha=0.8) + labs(y="Analyses identified",x="Protein site") + theme_minimal() +
+		scale_color_manual(values=c("#7c9885","#e1ad01", "#033f63")) + theme(legend.position="none", axis.text.x=element_text(size=5, angle=90, vjust = 0.5, hjust=1)) #, aspect.ratio=16/9
+	ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/homopl_method_combinations.png"), plot=p, width=15, height=5, dpi=900, bg="white")
+	p_ia <- ggplotly(p)
+	htmlwidgets::saveWidget(p_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/homopl_method_combinations.html"))
 	
 	joined_most_common_indep_ok_high_freq_lin <- joined_most_common_indep_ok %>% group_by(major_lineage, prot_site) %>% slice_max(Freq_homopl)
 	
@@ -343,18 +374,22 @@ bubble_plots <- function(most_common_homopl_df, out_suffix) {
 	joined_most_common_indep_ok_high_freq_lin <- joined_most_common_indep_ok_high_freq_lin[joined_most_common_indep_ok_high_freq_lin$analysis_identified.y != "HyPhy",]
 	joined_most_common_indep_ok_high_freq_lin <- joined_most_common_indep_ok_high_freq_lin[!is.na(joined_most_common_indep_ok_high_freq_lin$major_lineage),]
 	
-	ggplot(joined_most_common_indep_ok_high_freq_lin, aes(x=major_lineage, y=prot_site, size=Freq_homopl, color=analysis_identified.y)) +
+	p2 <- ggplot(joined_most_common_indep_ok_high_freq_lin, aes(x=major_lineage, y=prot_site, size=Freq_homopl, color=analysis_identified.y)) +
 		geom_point(alpha=0.5) + labs(x="Major lineage", y="Protein site") + theme_minimal() + theme(axis.text.y = element_text(size=5), aspect.ratio=16/9) +
 		scale_size_area(name="Highest freq of homopl", breaks=c(20,50,150,500,1300)) + scale_color_manual(values=c("#7c9885","#e1ad01"), name="Analysis identified") #"#033f63"
-	ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/max_freq_all_lineages.png"), width=12, height=15, dpi=600, bg="white")
+	ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/max_freq_all_lineages.png"), plot=p2, width=12, height=15, dpi=600, bg="white")
+	p2_ia <- ggplotly(p2)
+	htmlwidgets::saveWidget(p2_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/max_freq_all_lineages.html"))
 	
 	most_common_homopl_all_high_freq_lin <- most_common_homopl_all %>% group_by(major_lineage, defining_mut) %>% slice_max(Freq_homopl)
 	most_common_homopl_all_high_freq_lin <- most_common_homopl_all_high_freq_lin[!is.na(most_common_homopl_all_high_freq_lin$major_lineage),]
 	# Plot max frequency of each homoplasy across thresholds (including WT and replaced aa) identified (without comparison with HyPhy)
-	ggplot(most_common_homopl_all_high_freq_lin, aes(x=major_lineage, y=defining_mut, size=Freq_homopl)) + #color=analysis_identified.y
+	p3 <- ggplot(most_common_homopl_all_high_freq_lin, aes(x=major_lineage, y=defining_mut, size=Freq_homopl)) + #color=analysis_identified.y
 		geom_point(alpha=0.5) + labs(x="Major lineage", y="Homoplasy") + theme_minimal() + theme(axis.text.y = element_text(size=5), aspect.ratio=16/9) +
 		scale_size_area(name="Highest freq of homopl") # breaks=c(20,50,150,500,1300) + scale_color_manual(values=c("#7c9885","#e1ad01", "#033f63")) +
-	ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/max_freq_replacement_lineages.png"), width=12, height=15, dpi=600, bg="white")
+	ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/max_freq_replacement_lineages.png"), plot=p3, width=12, height=15, dpi=600, bg="white")
+	p3_ia <- ggplotly(p3)
+	htmlwidgets::saveWidget(p3_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/max_freq_replacement_lineages.html"))
 	
 	# Bubble plots per major lineage comparing with other results (HyPhy): just showing protein site and not actual replacements
 	bubble_plots_replacements_lineages(joined_most_common_indep_ok, show_replacements=FALSE, out_suffix)
@@ -363,7 +398,7 @@ bubble_plots <- function(most_common_homopl_df, out_suffix) {
 
 }
 
-genomewise_plot <- function(df, mut_type) {
+genomewide_plot <- function(df, mut_type) {
 	# TODO? Annotate ORF1AB NSPs, S regions and N linker
 	df <- df %>% tidyr::separate(period_threshold, c("period","threshold"), sep="_")
 	df$threshold <- factor(df$threshold, levels=table_names_thresholds)
@@ -373,21 +408,34 @@ genomewise_plot <- function(df, mut_type) {
 		# No split for SYN
 		df_freq_genomic_regions_syn <- df %>% inner_join(genomic_ranges_df, by=c("spec_regions"="new_prot_name"))
 		df_freq_genomic_regions_syn_first <- df_freq_genomic_regions_syn %>% distinct() %>% group_by(defining_mut) %>% slice_min(n=1, as.numeric(threshold))
+		df_freq_genomic_regions_syn_first <- df_freq_genomic_regions_syn_first[!is.na(df_freq_genomic_regions_syn_first$threshold),]
 		#View(df_freq_genomic_regions_syn_first)
 		
-		system(glue("mkdir -p stat_results/{out_folder}/genomewise_plot_{mut_type}/"))
+		system(glue("mkdir -p stat_results/{out_folder}/genomewide_plot_{mut_type}/"))
 		
-		ggplot(df_freq_genomic_regions_syn_first, aes(x=genomic_index, y=Freq_homopl, color=threshold)) +
+		# Get table with all TFP-homoplasies
+		df_freq_genomic_regions_syn_first_t <- df_freq_genomic_regions_syn_first[order(as.numeric(df_freq_genomic_regions_syn_first$Freq_homopl), decreasing=TRUE),]
+		# Get table grouped by spec_regions and threshold
+		df_freq_genomic_regions_syn_first_t2 <- df_freq_genomic_regions_syn_first_t %>% group_by(spec_regions, threshold) %>% summarise(n=n())
+		
+		write.csv(df_freq_genomic_regions_syn_first_t, glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/syn_freqs_1st_threshold.csv"), quote=F, row.names=F)
+		write.csv(df_freq_genomic_regions_syn_first_t2, glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/syn_freqs_1st_threshold_REG_THR.csv"), quote=F, row.names=F)
+		
+		p <- ggplot(df_freq_genomic_regions_syn_first, aes(x=genomic_index, y=Freq_homopl, color=threshold)) +
 			geom_point(alpha=0.9) + labs(x="Nucleotide position", y="Frequency in TFP clusters") + theme_minimal() + #theme(axis.text.y=element_text(size=5)) +
 			scale_color_manual(values=pal_thresholds, name="Threshold where first detected") +
 			coord_cartesian(xlim = c(1, 29903), ylim = c(2,10)) + scale_y_continuous(breaks=seq(2,10,by=1))
-		ggsave(glue("stat_results/{out_folder}/genomewise_plot_{mut_type}/syn_freqs_1st_threshold.png"), width=15, height=5, dpi=600, bg="white")
+		ggsave(glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/syn_freqs_1st_threshold.png"), plot=p, width=15, height=5, dpi=600, bg="white")
+		p_ia <- ggplotly(p)
+		htmlwidgets::saveWidget(p_ia, glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/syn_freqs_1st_threshold.html"))
 		
-		ggplot(df_freq_genomic_regions_syn_first, aes(x=genomic_index, y=Freq_homopl, color=major_lineage)) +
+		p2 <- ggplot(df_freq_genomic_regions_syn_first, aes(x=genomic_index, y=Freq_homopl, color=major_lineage)) +
 			geom_point(alpha=0.9) + labs(x="Nucleotide position", y="Frequency in TFP clusters") + theme_minimal() + #theme(axis.text.y=element_text(size=5)) +
 			scale_color_manual(values=pal_lineages, name="Major lineage") +
 			coord_cartesian(xlim = c(0, 29903), ylim = c(2,10)) + scale_y_continuous(breaks=seq(2,10,by=1))
-		ggsave(glue("stat_results/{out_folder}/genomewise_plot_{mut_type}/syn_freqs_major_lineage.png"), width=15, height=5, dpi=600, bg="white")
+		ggsave(glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/syn_freqs_major_lineage.png"), plot=p2, width=15, height=5, dpi=600, bg="white")
+		p2_ia <- ggplotly(p2)
+		htmlwidgets::saveWidget(p2_ia, glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/syn_freqs_major_lineage.html"))
 		
 	}else if(mut_type == "non-syn") {
 		genomic_ranges_df <- read.csv("config/genomic_ranges_plot_non_syn.tsv", header=T, sep="\t")
@@ -395,28 +443,42 @@ genomewise_plot <- function(df, mut_type) {
 		df_freq_genomic_regions_nonsyn <- df %>% inner_join(genomic_ranges_df, by=c("spec_regions"="new_prot_name"))
 		# Split because each protein (ORF1AB + others) has its own relative coordinates
 		df_freq_genomic_regions_split_nonsyn <- split(df_freq_genomic_regions_nonsyn, df_freq_genomic_regions_nonsyn$protein)
-		df_freq_genomic_regions_split_nonsyn_first <- list()
+		df_freq_genomic_regions_split_nonsyn_first <- df_freq_genomic_regions_split_nonsyn_first_t <- df_freq_genomic_regions_split_nonsyn_first_t2 <- list()
 		for(i in 1:length(df_freq_genomic_regions_split_nonsyn)) {
 			df_freq_genomic_regions_split_nonsyn_first[[i]] <- df_freq_genomic_regions_split_nonsyn[[i]] %>% distinct() %>% group_by(defining_mut) %>% slice_min(n=1, as.numeric(threshold))
+			df_freq_genomic_regions_split_nonsyn_first[[i]] <- df_freq_genomic_regions_split_nonsyn_first[[i]][!is.na(df_freq_genomic_regions_split_nonsyn_first[[i]]$threshold),]
 			
-			system(glue("mkdir -p stat_results/{out_folder}/genomewise_plot_{mut_type}/"))
+			# Get tables with all TFP-homoplasies
+			df_freq_genomic_regions_split_nonsyn_first_t[[i]] <- df_freq_genomic_regions_split_nonsyn_first[[i]][order(as.numeric(df_freq_genomic_regions_split_nonsyn_first[[i]]$Freq_homopl), decreasing=TRUE),]
+			# Get tables grouped by spec_regions and threshold
+			df_freq_genomic_regions_split_nonsyn_first_t2[[i]] <- df_freq_genomic_regions_split_nonsyn_first_t[[i]] %>% group_by(spec_regions, threshold) %>% summarise(n=n())
 			
-			ggplot(df_freq_genomic_regions_split_nonsyn_first[[i]], aes(x=genomic_index, y=Freq_homopl, color=threshold)) +
+			system(glue("mkdir -p stat_results/{out_folder}/genomewide_plot_{mut_type}/"))
+			
+			write.csv(df_freq_genomic_regions_split_nonsyn_first_t[[i]], glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/nonsyn_freqs_1st_threshold_{unique(df_freq_genomic_regions_split_nonsyn_first[[i]]$protein)}.csv"), quote=F, row.names=F)
+			write.csv(df_freq_genomic_regions_split_nonsyn_first_t2[[i]], glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/nonsyn_freqs_1st_threshold_{unique(df_freq_genomic_regions_split_nonsyn_first[[i]]$protein)}_REG_THR.csv"), quote=F, row.names=F)
+			
+			p3 <- ggplot(df_freq_genomic_regions_split_nonsyn_first[[i]], aes(x=genomic_index, y=Freq_homopl, color=threshold)) +
 				geom_point(alpha=0.9) + labs(x="Aminoacid position", y="Frequency in TFP clusters") + theme_minimal() +
 				#facet_grid(~spec_regions, scales = "free", switch = "x") +
 				scale_color_manual(values=pal_thresholds, name="Threshold where first detected") +
 				geom_text_repel(aes(label = ifelse(Freq_homopl>5,as.character(defining_mut),'')), size=2, box.padding   = 0.35, point.padding = 0.5, segment.color = 'grey50', max.overlaps=15)+
 				coord_cartesian(xlim = c(df_freq_genomic_regions_split_nonsyn_first[[i]]$start[1], df_freq_genomic_regions_split_nonsyn_first[[i]]$end[1])) #, ylim = c(2,10)) + scale_y_continuous(breaks=seq(2,10,by=1))
-			ggsave(glue("stat_results/{out_folder}/genomewise_plot_{mut_type}/nonsyn_freqs_1st_threshold_{unique(df_freq_genomic_regions_split_nonsyn_first[[i]]$protein)}.png"), width=15, height=5, dpi=600, bg="white")
+			ggsave(glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/nonsyn_freqs_1st_threshold_{unique(df_freq_genomic_regions_split_nonsyn_first[[i]]$protein)}.png"), plot=p3, width=15, height=5, dpi=600, bg="white")
+			p3_ia <- ggplotly(p3)
+			htmlwidgets::saveWidget(p3_ia, glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/nonsyn_freqs_1st_threshold_{unique(df_freq_genomic_regions_split_nonsyn_first[[i]]$protein)}.html"))
 			
-			ggplot(df_freq_genomic_regions_split_nonsyn_first[[i]], aes(x=genomic_index, y=Freq_homopl, color=major_lineage)) +
+			p4 <- ggplot(df_freq_genomic_regions_split_nonsyn_first[[i]], aes(x=genomic_index, y=Freq_homopl, color=major_lineage)) +
 				geom_point(alpha=0.9) + labs(x="Aminoacid position", y="Frequency in TFP clusters") + theme_minimal() +
 				#facet_grid(~spec_regions, scales = "free", switch = "x") +
 				scale_color_manual(values=pal_lineages, name="Major lineage") +
 				#geom_tile(aes(x=spec_regions, y=1, fill=)) +
 				geom_text_repel(aes(label = ifelse(Freq_homopl>2,as.character(defining_mut),'')), size=2, box.padding   = 0.35, point.padding = 0.5, segment.color = 'grey50', max.overlaps=15)+
 				coord_cartesian(xlim = c(df_freq_genomic_regions_split_nonsyn_first[[i]]$start[1], df_freq_genomic_regions_split_nonsyn_first[[i]]$end[1])) #, ylim = c(2,10)) + scale_y_continuous(breaks=seq(2,10,by=1))
-			ggsave(glue("stat_results/{out_folder}/genomewise_plot_{mut_type}/nonsyn_freqs_major_lineage_{unique(df_freq_genomic_regions_split_nonsyn_first[[i]]$protein)}.png"), width=15, height=5, dpi=600, bg="white")
+			ggsave(glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/nonsyn_freqs_major_lineage_{unique(df_freq_genomic_regions_split_nonsyn_first[[i]]$protein)}.png"), plot=p4, width=15, height=5, dpi=600, bg="white")
+			p4_ia <- ggplotly(p4)
+			htmlwidgets::saveWidget(p4_ia, glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/nonsyn_freqs_major_lineage_{unique(df_freq_genomic_regions_split_nonsyn_first[[i]]$protein)}.html"))
+			
 			
 		}
 		#View(df_freq_genomic_regions_split_nonsyn_first[[1]])
@@ -505,6 +567,35 @@ stacked_bar_freqs <- function(df, mut_type) {
 		labs(x="Count of unique homoplasies (normalised by genomic size)", y="Genomic region")
 	ggsave(glue("stat_results/{out_folder}/stacked_bar_uniq_counts_{mut_type}/stacked_bar_uniq_counts_norm.png"), width=8, height=6, dpi=600, bg="white")
 
+}
+
+total_amount_unique_homoplasies <- function(df, mut_type) {
+	df <- df %>% tidyr::separate(period_threshold, c("period","threshold"), sep="_")
+	df$threshold <- as.numeric(df$threshold)
+	#df$threshold <- factor(df$threshold, levels=table_names_thresholds)
+	
+	df_freq_genomic_regions_first <- df %>% distinct() %>% group_by(defining_mut) %>% slice_min(n=1, as.numeric(threshold))
+	
+	if(mut_type == "syn") {
+		df_freq_genomic_regions_first$spec_regions <- sub(".*:","",df_freq_genomic_regions_first$spec_regions)
+	}
+	
+	system(glue("mkdir -p stat_results/{out_folder}/total_homopls_{mut_type}/"))
+	
+	total_homopls <- nrow(df_freq_genomic_regions_first)
+	print(glue("Total number of unique homoplasies for mut_type={mut_type} = {total_homopls}"))
+	
+	total_homopls_region <- df_freq_genomic_regions_first %>% group_by(spec_regions) %>% summarise(total=n())
+	write.csv(total_homopls_region, glue("stat_results/{out_folder}/total_homopls_{mut_type}/total_homopls_region.csv"), quote=F, row.names=F)
+	
+	total_homopls_region_lineage <- df_freq_genomic_regions_first %>% group_by(spec_regions, major_lineage) %>% summarise(total=n())
+	write.csv(total_homopls_region_lineage, glue("stat_results/{out_folder}/total_homopls_{mut_type}/total_homopls_region_lineage.csv"), quote=F, row.names=F)
+		
+	total_homopls_region_lower_thr <- df_freq_genomic_regions_first %>% filter(threshold<=1) %>% group_by(spec_regions) %>% summarise(total=n())
+	write.csv(total_homopls_region_lower_thr, glue("stat_results/{out_folder}/total_homopls_{mut_type}/total_homopls_region_lower_thr.csv"), quote=F, row.names=F)
+	
+	total_homopls_region_higher_thr <- df_freq_genomic_regions_first %>% filter(threshold>=2) %>% group_by(spec_regions) %>% summarise(total=n())
+	write.csv(total_homopls_region_higher_thr, glue("stat_results/{out_folder}/total_homopls_{mut_type}/total_homopls_region_higher_thr.csv"), quote=F, row.names=F)
 }
 
 # Function to facilitate comparison between periods including and excluding Omicron muts
@@ -619,11 +710,18 @@ clustering_model_fitting <- function(path_stats, out_folder) {
 		joined_mut_sites_clustered_non_syn[[i]] <- joined_mut_sites_clustered[[i]][joined_mut_sites_clustered[[i]]$syn == 0,]
 		joined_mut_sites_clustered_non_syn[[i]]$major_lineage <- as.factor( joined_mut_sites_clustered_non_syn[[i]]$major_lineage )
 		joined_mut_sites_clustered_non_syn[[i]]$spec_regions <- as.factor(joined_mut_sites_clustered_non_syn[[i]]$spec_regions)
-		csv_cp2[[i]] <- joined_mut_sites_clustered_non_syn[[i]][ order(joined_mut_sites_clustered_non_syn[[i]]$Freq_homopl, decreasing=T) ,]
-		write.csv(csv_cp2[[i]], glue("stat_results/{out_folder}/stat_ready_csvs_all_sites/df_all_sites_{path_thresholds[i]}_NON_SYN.csv"), quote=F, row.names=F)
-		csv_cp2[[i]] <- csv_cp2[[i]][(as.integer(csv_cp2[[i]]$Freq_homopl) > 0) & (as.integer(csv_cp2[[i]]$is_clustered)==1), ]
-		write.csv(csv_cp2[[i]], glue("stat_results/{out_folder}/stat_ready_csvs_only_clustered/df_only_clustered_{path_thresholds[i]}_NON_SYN.csv"), quote=F, row.names=F)
+		
+		# TODO? Exclude cases where the syn mutation co-occurs with something non-synonymous (false detection)
+		# SYN spec_regions matches with aa_length_stat_model.tsv new_prot_name
+		# NON-SYN spec_regions matches with aa_length_stat_model.tsv new_prot_name
+		
+		# csv_cp2[[i]] <- joined_mut_sites_clustered_non_syn[[i]][ order(joined_mut_sites_clustered_non_syn[[i]]$Freq_homopl, decreasing=T) ,]
+		# write.csv(csv_cp2[[i]], glue("stat_results/{out_folder}/stat_ready_csvs_all_sites/df_all_sites_{path_thresholds[i]}_NON_SYN.csv"), quote=F, row.names=F)
+		# csv_cp2[[i]] <- csv_cp2[[i]][(as.integer(csv_cp2[[i]]$Freq_homopl) > 0) & (as.integer(csv_cp2[[i]]$is_clustered)==1), ]
+		# write.csv(csv_cp2[[i]], glue("stat_results/{out_folder}/stat_ready_csvs_only_clustered/df_only_clustered_{path_thresholds[i]}_NON_SYN.csv"), quote=F, row.names=F)
 	}
+	# View(joined_mut_sites_clustered_syn[[1]])
+	# View(joined_mut_sites_clustered_non_syn[[1]])
 	
 	#View(clustered_dfs[[1]])
 	#View(joined_mut_sites_clustered[[1]])
@@ -631,7 +729,8 @@ clustering_model_fitting <- function(path_stats, out_folder) {
 	names(joined_mut_sites_clustered_syn) <- table_combs
 	names(joined_mut_sites_clustered_non_syn) <- table_combs
 	
-	# Stats
+	# TODO when done uncomment from below to end of function
+	# # Stats
 	# sink(file = glue("stat_results/{out_folder}/lm_output_SPLITTED_ALL.txt"))
 	# for(i in 1:length(path_thresholds)) {
 	# 	print(glue("{path_stats}/{path_thresholds[i]}/"))
@@ -650,9 +749,8 @@ clustering_model_fitting <- function(path_stats, out_folder) {
 	# 	print("Summary spec_regions and is_clustered (SYN): ")
 	# 	print(syn_reg_summ, n=60)
 	# 	detach(package:rstatix,unload=TRUE)
-	# 	
-	# 	print("1111")
-	# 	
+	# 
+	# 
 	# 	# poisson regression (removed is_clustered)
 	# 	poisson_models_syn[[i]] <- glm(Freq_homopl ~ major_lineage + spec_regions + -1, data=joined_mut_sites_clustered_syn[[i]], na.action=na.omit, family=poisson(link = "log")) #genomic_index +s_mut_region_interest +syn + aa_length + indep_found_pos_selection
 	# 	poisson_models_syn_ci[[i]] <- confint(poisson_models_syn[[i]], level=0.95)
@@ -661,7 +759,7 @@ clustering_model_fitting <- function(path_stats, out_folder) {
 	# 	print(summary(poisson_models_syn[[i]]))
 	# 	print("Summary poisson (SYN) CIs for coeffs: ")
 	# 	print(poisson_models_syn_ci[[i]])
-	# 	
+	# 
 	# 	library(rstatix)
 	# 	nonsyn_lin_summ <- joined_mut_sites_clustered_non_syn[[i]] %>% group_by(major_lineage) %>% get_summary_stats(Freq_homopl, type = "mean_sd") #is_clustered
 	# 	print("Summary major_lineage and is_clustered (NON-SYN): ")
@@ -670,8 +768,6 @@ clustering_model_fitting <- function(path_stats, out_folder) {
 	# 	print("Summary spec_regions and is_clustered (NON-SYN): ")
 	# 	print(nonsyn_reg_summ, n=60)
 	# 	detach(package:rstatix,unload=TRUE)
-	# 	
-	# 	print("2222")
 	# 
 	# 	#removed is_clustered
 	# 	poisson_models_non_syn[[i]] <- glm(Freq_homopl ~ major_lineage + spec_regions + indep_found_pos_selection + -1, data=joined_mut_sites_clustered_non_syn[[i]], na.action=na.omit, family=poisson(link = "log")) #genomic_index +s_mut_region_interest +syn + aa_length
@@ -681,69 +777,15 @@ clustering_model_fitting <- function(path_stats, out_folder) {
 	# 	print(summary(poisson_models_non_syn[[i]]))
 	# 	print("Summary poisson (NON-SYN) CIs for coeffs: ")
 	# 	print(poisson_models_non_syn_ci[[i]])
-	# 	# 
-	# 	# # Contingency tables
-	# 	# conting_syn_lin <- table(joined_mut_sites_clustered_syn[[i]]$major_lineage, joined_mut_sites_clustered_syn[[i]]$is_clustered)
-	# 	# print("Contingency table of major_lineage and is_clustered (SYN): ")
-	# 	# print(conting_syn_lin)
-	# 	# conting_syn_reg <- table(joined_mut_sites_clustered_syn[[i]]$spec_regions, joined_mut_sites_clustered_syn[[i]]$is_clustered)
-	# 	# print("Contingency table of spec_regions and is_clustered (SYN): ")
-	# 	# print(conting_syn_reg)
-	# 	# 
-	# 	# # is_clustered_h3
-	# 	# conting_syn_lin_h3 <- table(joined_mut_sites_clustered_syn[[i]]$major_lineage, joined_mut_sites_clustered_syn[[i]]$is_clustered_h3)
-	# 	# print("Contingency table of major_lineage and is_clustered_h3 (SYN): ")
-	# 	# print(conting_syn_lin_h3)
-	# 	# conting_syn_reg_h3 <- table(joined_mut_sites_clustered_syn[[i]]$spec_regions, joined_mut_sites_clustered_syn[[i]]$is_clustered_h3)
-	# 	# print("Contingency table of spec_regions and is_clustered_h3 (SYN): ")
-	# 	# print(conting_syn_reg_h3)
-	# 	# 
-	# 	# print("3333")
-	# 
-	# 	# logistic regression (NOT USING NOW: is_clustered_h3 == 1 if Freq_homopl > 3, == 0 otherwise)
-	# 	# lr_models_syn[[i]] <- glm(is_clustered==1 ~ major_lineage + aa_length + spec_regions + aa_length + -1, data=joined_mut_sites_clustered_syn[[i]], na.action=na.omit, family=binomial(link="logit")) # Freq_homopl:aa_length + indep_found_pos_selection
-	# 	# #lr_models_syn_ci[[i]] <- confint(lr_models_syn[[i]], level=0.95)
-	# 	# print("Summary logistic (SYN): ")
-	# 	# #print(nrow(joined_mut_sites_clustered_syn[[i]]))
-	# 	# print(summary(lr_models_syn[[i]]))
-	# 	# # print("Summary logistic (SYN) CIs for coeffs: ")
-	# 	# # print(lr_models_syn_ci[[i]])
-	# 
-	# 	# # Contingency tables
-	# 	# conting_nonsyn_lin <- table(joined_mut_sites_clustered_non_syn[[i]]$major_lineage, joined_mut_sites_clustered_non_syn[[i]]$is_clustered)
-	# 	# print("Contingency table of major_lineage and is_clustered (NON-SYN): ")
-	# 	# print(conting_nonsyn_lin)
-	# 	# conting_nonsyn_reg <- table(joined_mut_sites_clustered_non_syn[[i]]$spec_regions, joined_mut_sites_clustered_non_syn[[i]]$is_clustered)
-	# 	# print("Contingency table of spec_regions and is_clustered (NON-SYN): ")
-	# 	# print(conting_nonsyn_reg)
-	# 	# 
-	# 	# # is_clustered_h3
-	# 	# conting_nonsyn_lin_h3 <- table(joined_mut_sites_clustered_non_syn[[i]]$major_lineage, joined_mut_sites_clustered_non_syn[[i]]$is_clustered_h3)
-	# 	# print("Contingency table of major_lineage and is_clustered_h3 (NON-SYN): ")
-	# 	# print(conting_nonsyn_lin_h3)
-	# 	# conting_nonsyn_reg_h3 <- table(joined_mut_sites_clustered_non_syn[[i]]$spec_regions, joined_mut_sites_clustered_non_syn[[i]]$is_clustered_h3)
-	# 	# print("Contingency table of spec_regions and is_clustered_h3 (NON-SYN): ")
-	# 	# print(conting_nonsyn_reg_h3)
-	# 	# 
-	# 	# print("4444")
-	# 	
-	# 	# NOT USING NOW: is_clustered_h3
-	# 	# lr_models_non_syn[[i]] <- glm(is_clustered==1 ~ major_lineage + spec_regions + aa_length + indep_found_pos_selection + -1, data=joined_mut_sites_clustered_non_syn[[i]], na.action=na.omit, family=binomial(link="logit"))
-	# 	# #lr_models_non_syn_ci[[i]] <- confint(lr_models_non_syn[[i]], level=0.95)
-	# 	# print("Summary logistic (NON-SYN): ")
-	# 	# #print(nrow(joined_mut_sites_clustered_non_syn[[i]]))
-	# 	# print(summary(lr_models_non_syn[[i]]))
-	# 	# # print("Summary logistic (NON-SYN) CIs for coeffs: ")
-	# 	# # print(lr_models_non_syn_ci[[i]])
 	# 
 	# }
 	# sink(file = NULL)
-	
+
 	# # Plots
 	# for(i in 1:length(path_thresholds)) {
 	# 	ggplot(joined_mut_sites_clustered_non_syn[[i]], aes(is_clustered_h3)) + geom_bar(fill = "#0073C2FF")
 	# 	ggsave(glue("stat_results/{out_folder}/freqs_clustered/logistic_nonsyn_{i}.png"), width=4, height=3, dpi=600, bg="white")
-	# 
+	#
 	# 	# Boxplots
 	# 	joined_mut_sites_clustered_syn[[i]]$is_clustered <- as.factor(joined_mut_sites_clustered_syn[[i]]$is_clustered)
 	# 	system(glue("mkdir -p stat_results/{out_folder}/boxplots/"))
@@ -751,30 +793,33 @@ clustering_model_fitting <- function(path_stats, out_folder) {
 	# 	ggsave(glue("stat_results/{out_folder}/boxplots/syn_lineage_freq_{i}.png"), width=6, height=4, dpi=600, bg="white")
 	# 	ggboxplot(joined_mut_sites_clustered_syn[[i]], x = "spec_regions", y = "Freq_homopl", color="is_clustered", palette="jco") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 	# 	ggsave(glue("stat_results/{out_folder}/boxplots/syn_region_freq_{i}.png"), width=8, height=6, dpi=600, bg="white")
-	# 
+	#
 	# 	joined_mut_sites_clustered_non_syn[[i]]$is_clustered <- as.factor(joined_mut_sites_clustered_non_syn[[i]]$is_clustered)
 	# 	ggboxplot(joined_mut_sites_clustered_non_syn[[i]], x = "major_lineage", y = "Freq_homopl", color="is_clustered", palette="jco") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 	# 	ggsave(glue("stat_results/{out_folder}/boxplots/nonsyn_lineage_freq_{i}.png"), width=6, height=4, dpi=600, bg="white")
 	# 	ggboxplot(joined_mut_sites_clustered_non_syn[[i]], x = "spec_regions", y = "Freq_homopl", color="is_clustered", palette="jco") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 	# 	ggsave(glue("stat_results/{out_folder}/boxplots/nonsyn_region_freq_{i}.png"), width=8, height=6, dpi=600, bg="white")
 	# }
-	
+
 	# Inspection plots
 	df_syn_clustered_homopl <- rbindlist(joined_mut_sites_clustered_syn, use.names=T, idcol="period_threshold")
 	df_non_syn_clustered_homopl <- rbindlist(joined_mut_sites_clustered_non_syn, use.names=T, idcol="period_threshold")
-	
+
 	df_syn_clustered_homopl <- change_ids(df_syn_clustered_homopl)
 	df_non_syn_clustered_homopl <- change_ids(df_non_syn_clustered_homopl)
-	
-	genomewise_plot(df_syn_clustered_homopl, mut_type="syn")
-	genomewise_plot(df_non_syn_clustered_homopl, mut_type="non-syn")
-	
+
+	genomewide_plot(df_syn_clustered_homopl, mut_type="syn")
+	genomewide_plot(df_non_syn_clustered_homopl, mut_type="non-syn")
+
 	violin_boxplot_freq_variations(df_syn_clustered_homopl, mut_type="syn")
 	violin_boxplot_freq_variations(df_non_syn_clustered_homopl, mut_type="non-syn")
-	
+
 	stacked_bar_freqs(df_syn_clustered_homopl, mut_type="syn")
 	stacked_bar_freqs(df_non_syn_clustered_homopl, mut_type="non-syn")
-	
+
+	total_amount_unique_homoplasies(df_syn_clustered_homopl, mut_type="syn")
+	total_amount_unique_homoplasies(df_non_syn_clustered_homopl, mut_type="non-syn")
+
 	system(glue("mkdir -p stat_results/{out_folder}/only_clustered_ordered_homopl/"))
 	# SYN
 	# df_syn_clustered_homopl <- change_ids(df_syn_clustered_homopl)
@@ -839,27 +884,168 @@ clustering_model_fitting <- function(path_stats, out_folder) {
 	most_common_homopl_syn_clust1 <- get_most_common_homopls(df_syn_clustered_homopl_reg_plots_all,"syn_clust1",is_clustered_flag=TRUE)
 	most_common_homopl_non_syn_clust1 <- get_most_common_homopls(df_non_syn_clustered_homopl_reg_plots_all, "non_syn_clust1",is_clustered_flag=TRUE)
 	#View(most_common_homopl_non_syn_clust1[[2]])
-	# 
-	# # is_clustered = 0 (NOT identified by quantile thresholds of stats)
-	# most_common_homopl_syn_clust0 <- get_most_common_homopls(df_syn_clustered_homopl_reg_plots_all,"syn_clust0",is_clustered_flag=FALSE)
-	# most_common_homopl_non_syn_clust0 <- get_most_common_homopls(df_non_syn_clustered_homopl_reg_plots_all, "non_syn_clust0",is_clustered_flag=FALSE)
-	# #View(most_common_homopl_non_syn_clust0[[2]])
-	#
-	# Bubbles for is_clustered = 1
-	bubble_syn_clust1 <- bubble_plots(most_common_homopl_syn_clust1,"syn_clust1")
-	bubble_non_syn_clust1 <- bubble_plots(most_common_homopl_non_syn_clust1,"non-syn_clust1")
 
-	# # Bubbles for is_clustered = 0
-	# bubble_syn_clust0 <- bubble_plots(most_common_homopl_syn_clust0,"syn_clust0")
-	# bubble_non_syn_clust0 <- bubble_plots(most_common_homopl_non_syn_clust0,"non-syn_clust0")
+	# Bubbles for is_clustered = 1
+	bubble_syn_clust1 <- bubble_plots(most_common_homopl_syn_clust1,"syn","syn_clust1")
+	bubble_non_syn_clust1 <- bubble_plots(most_common_homopl_non_syn_clust1, "non-syn", "non-syn_clust1")
 	
 }
 
+# for union (at least one statistic) of tree-based clustering stats, plot them
+plot_tbc_stats <- function(path_stats, out_folder, ymin_vec=c(0,0,-50), ymax_vec=c(10,10,100)) {
+	clustered_dfs <- list()
+	#r_sizes <- r_persist_time <- logit_growth <- list()
+	for(i in 1:length(path_thresholds)) {
+		clustered_dfs[[i]] <- read.csv(glue("{path_stats}/{path_thresholds[i]}/stats_union.csv"), header=T)
+		clustered_dfs[[i]]$threshold <- table_names_thresholds[i]
+		clustered_dfs[[i]]$threshold <- factor(clustered_dfs[[i]]$threshold, levels=table_names_thresholds)
+		
+	}
+	
+	clustered_dfs_all_thr <- rbindlist(clustered_dfs)
+	clustered_dfs_all_thr <- clustered_dfs_all_thr[clustered_dfs_all_thr$homoplasies == "yes", ]
+	#View(clustered_dfs_all_thr)
+	
+	system(glue("mkdir -p stat_results/{out_folder}/tbc_stats/"))
+	
+	# RATIO OF SIZES
+	rs <- ggplot(clustered_dfs_all_thr, aes(x=threshold, y=ratio_sizes, color=threshold)) + 
+		geom_violin() + geom_sina(size=0.3) +
+		scale_color_manual(name = "Threshold", values = pal_thresholds) +
+		labs(x="Threshold", y="Ratio of sizes") + coord_cartesian(ylim=c(ymin_vec[1],ymax_vec[1])) +
+		theme_bw() + theme(plot.title = element_text(hjust=0.5), axis.text=element_text(size=7), axis.title=element_text(size=7), legend.position="none")
+	ggsave(glue("stat_results/{out_folder}/tbc_stats/{path_thresholds[i]}_ratio_sizes.pdf"), plot=rs, units="in", width=6, height=4.5, dpi=600)
+	
+	# RATIO OF PERSISTENCE TIME
+	rpt <- ggplot(clustered_dfs_all_thr, aes(x=threshold, y=ratio_persist_time, color=threshold)) + 
+		geom_violin() + geom_sina(size=0.3) +
+		scale_color_manual(name = "Threshold", values = pal_thresholds) +
+		labs(x="Threshold", y="Ratio of persistence time") + coord_cartesian(ylim=c(ymin_vec[2],ymax_vec[2])) +
+		theme_bw() + theme(plot.title = element_text(hjust=0.5), axis.text=element_text(size=7), axis.title=element_text(size=7), legend.position="none")
+	ggsave(glue("stat_results/{out_folder}/tbc_stats/{path_thresholds[i]}_ratio_persist_time.pdf"), plot=rpt, units="in", width=6, height=4.5, dpi=600)
+	
+	# LOGISTIC GROWTH RATE
+	lgr <- ggplot(clustered_dfs_all_thr, aes(x=threshold, y=logistic_growth, color=threshold)) + 
+		geom_violin() + geom_sina(size=0.3) +
+		scale_color_manual(name = "Threshold", values = pal_thresholds) +
+		labs(x="Threshold", y="Logistic growth rate") + coord_cartesian(ylim=c(ymin_vec[3],ymax_vec[3])) +
+		theme_bw() + theme(plot.title = element_text(hjust=0.5), axis.text=element_text(size=7), axis.title=element_text(size=7), legend.position="none")
+	ggsave(glue("stat_results/{out_folder}/tbc_stats/{path_thresholds[i]}_logit_growth.pdf"), plot=lgr, units="in", width=6, height=4.5, dpi=600)
+	
+	p_tbc_stats <- ggarrange(rs, rpt, lgr, nrow=3, ncol=1, labels=c("A","B","C"), common.legend=TRUE, legend="right")
+	ggsave(glue("stat_results/{out_folder}/tbc_stats/{path_thresholds[i]}_all.pdf"), plot=p_tbc_stats, units="in", width=5.5, height=8, dpi=300)
+}
+
+stacked_nsites_genomic_region_threshold <- function(path) {
+	reg_thr_files <- list.files(path = path, pattern = "*REG_THR.csv", full.names = TRUE)
+	reg_thr_files_list <- list()
+	for(i in 1:length(reg_thr_files)) {
+		reg_thr_files_list[[i]] <- read.csv(reg_thr_files[i], header=T)
+	}
+	
+	reg_thr_files_df <- rbindlist(reg_thr_files_list)
+	reg_thr_files_df$threshold <- factor(reg_thr_files_df$threshold, levels=table_names_thresholds)
+	reg_thr_files_df$spec_regions <- factor(reg_thr_files_df$spec_regions, levels=lvls_nonsyn_proteins_annots)
+	#View(reg_thr_files_df)
+	
+	system(glue("mkdir -p {path}/stacked_nsites_threshold/"))
+	
+	p <- ggplot(reg_thr_files_df, aes(fill=threshold, x=n, y=spec_regions)) + 
+		geom_bar(position="stack", stat="identity") + scale_fill_manual(values=pal_thresholds, name="Theshold first detected") + theme(axis.text.y = element_text(size=10)) + theme_minimal() +
+		labs(y="Genomic region", x="Number of identified sites")
+	ggsave(glue("{path}/stacked_nsites_threshold/stacked_nsites_region_thr.pdf"), plot=p, width=8, height=6, dpi=600, bg="white")
+	
+	p_ia <- ggplotly(p)
+	htmlwidgets::saveWidget(p_ia,glue("{path}/stacked_nsites_threshold/stacked_nsites_region_thr.html"))
+}
+
+false_discovery_rate_syn <- function(path_stats, out_folder) {
+	clustered_dfs <- clustered_dfs_syn <- prop_fdr <- fdr_tfp <- prop_fdr_reg <- fdr_tfp_reg <- list()
+	for(i in 1:length(path_thresholds)) {
+		clustered_dfs[[i]] <- read.csv(glue("{path_stats}/{path_thresholds[i]}/clustered_all_df.csv"), header=T)
+		clustered_dfs[[i]]$syn <- ifelse(clustered_dfs[[i]]$syn == as.character("syn"), 1, 0)
+		clustered_dfs_syn[[i]] <- clustered_dfs[[i]][clustered_dfs[[i]]$syn == 1,]
+		
+		# Extract genome index position
+		rgx_genomic_idx <- regexpr(':[A-Z]{1}[0-9]{1,5}[A-Z*]{1}', clustered_dfs_syn[[i]]$defining_mut)
+		comm_coord <- rep(NA,length(clustered_dfs_syn[[i]]$defining_mut))
+		comm_coord[rgx_genomic_idx != -1] <- str_sub( regmatches(clustered_dfs_syn[[i]]$defining_mut, rgx_genomic_idx), 3, -2)
+		comm_coord <- as.integer(comm_coord)
+		comm_coord_df <- as.data.frame(comm_coord); colnames(comm_coord_df) <- c("genomic_index")
+		clustered_dfs_syn[[i]] <- cbind(clustered_dfs_syn[[i]], comm_coord_df)
+		
+		# Adjust df columns
+		#joined_mut_sites_clustered[[i]] <- joined_mut_sites_clustered[[i]] %>% select(defining_mut, Freq_homopl, is_clustered, major_lineage, syn_non_syn, protein, aa_length, indep_found_pos_selection, genomic_index) #s_mut_region_interest
+		#colnames(joined_mut_sites_clustered[[i]]) <- c("defining_mut","Freq_homopl","is_clustered","major_lineage","syn","protein","aa_length","indep_found_pos_selection","genomic_index") #s_mut_region_interest
+		
+		clustered_dfs_syn[[i]]$protein <- sub("\\:.*", "", clustered_dfs_syn[[i]]$defining_mut)
+		
+		setDT(clustered_dfs_syn[[i]]); setDT(annot_gen_range_positions)
+		clustered_dfs_syn[[i]] <- clustered_dfs_syn[[i]][annot_gen_range_positions, on=c("protein==name_cog_md","genomic_index>=start","genomic_index<=end"), spec_regions := new_prot_name]
+		clustered_dfs_syn[[i]] <- clustered_dfs_syn[[i]][annot_gen_length_positions, on=c("spec_regions==new_prot_name"), aa_length := length]
+		
+		# Overall FDR
+		prop_fdr[[i]] <- clustered_dfs_syn[[i]] %>% group_by(is_clustered) %>% summarise(n=n()) %>% mutate(prop_fdr = paste0(round(100 * n/sum(n), 2), "%"))
+		fdr_tfp[[i]] <- prop_fdr[[i]]$prop_fdr[ prop_fdr[[i]]$is_clustered==1 ]
+		#View(prop_fdr[[i]])
+		#print(head(prop_fdr[[i]]))
+		print(glue("FDR (SYN mutations) for {path_thresholds[i]}: {fdr_tfp[[i]]}"))
+		
+		# FDR for each genomic region
+		prop_fdr_reg[[i]] <- clustered_dfs_syn[[i]] %>% group_by(spec_regions, is_clustered) %>% summarise(n=n()) %>% mutate(prop_fdr = round(100 * n/sum(n), 2)) #mutate(prop_fdr = paste0(round(100 * n/sum(n), 2), "%"))
+		#print(prop_fdr_reg[[i]], n=50)
+		fdr_tfp_reg[[i]] <- prop_fdr_reg[[i]][ prop_fdr_reg[[i]]$is_clustered==1, ]
+		fdr_tfp_reg[[i]]$threshold <- path_thresholds[i]
+		fdr_tfp_reg[[i]]$threshold <- sub("threshold_quantile_", "", fdr_tfp_reg[[i]]$threshold)
+		fdr_tfp_reg[[i]]$threshold <- as.numeric(fdr_tfp_reg[[i]]$threshold)
+		
+		system(glue("mkdir -p stat_results/{out_folder}/fdr_syn/"))
+		write.csv(fdr_tfp_reg[[i]], file=glue("stat_results/{out_folder}/fdr_syn/FDR_{path_thresholds[i]}.csv"))
+		
+	}
+	
+	# Plot FDR for each genomic region over thresholds
+	fdr_reg_thr <- rbindlist(fdr_tfp_reg)
+	#fdr_reg_thr$prop_fdr <- sub("%", "", fdr_reg_thr$prop_fdr)
+	fdr_reg_thr$prop_fdr <- as.numeric(fdr_reg_thr$prop_fdr)
+	# Remove SYNSNP from proteins
+	fdr_reg_thr$spec_regions <- sub("SYNSNP:","",fdr_reg_thr$spec_regions)
+	
+	# TODO find a way to order according to genomic position (converting to factor as below does not work)
+	# fdr_reg_thr$spec_regions <- factor(fdr_reg_thr$spec_regions, levels=lvls_syn_proteins)
+	
+	#View(fdr_reg_thr)
+	fdr_reg_thr_split <- split(fdr_reg_thr, fdr_reg_thr$spec_regions)
+	#View(fdr_reg_thr_split[[24]])
+	#print(names(fdr_reg_thr_split))
+	
+	# Order list / adjust order of appearance on the plot according to genomic positions
+	#fdr_reg_thr_split <- fdr_reg_thr_split 
+	#fdr_reg_thr_split[sort(names(mylist))]
+	
+	
+	p_fdr <- list()
+	for(j in 1:length(fdr_reg_thr_split)) {
+		p_fdr[[j]] <-	ggplot(fdr_reg_thr_split[[j]], aes(x=as.factor(threshold),y=prop_fdr)) + ggtitle(unique(fdr_reg_thr_split[[j]]$spec_regions)) +
+			geom_point() + geom_path(group=1) + theme_minimal() +  #scale_x_discrete(breaks=c(0.25, 0.5, 0.75, 1, 2, 3, 4, 5, 10, 25)) + 
+			labs(x="Quantile thresholds", y="False Discovery Rate (%)") + theme(axis.text = element_text(size=5), plot.title=element_text(size=6), axis.title=element_text(size=5))
+		#ggsave(glue("stat_results/{out_folder}/fdr_syn/FDR_{unique(fdr_reg_thr_split[[j]]$spec_regions)}.png"), width=5, height=4, dpi=600, bg="white")
+	}
+	#print(length(p_fdr))
+	#print(p_fdr)
+	ggarrange(plotlist=p_fdr, ncol=4, nrow=6)
+	ggsave(glue("stat_results/{out_folder}/fdr_syn/fdr_all_regions.png"), width=10, height=12, dpi=600, bg="white")
+	
+}
+
+print("=========")
+print("PERIOD 2")
+print("=========")
 # FOR PERIOD 2
 # Expected paths containing results for each quantile threshold
 thr_pref <- "threshold_quantile"
 path_thresholds <- c(glue("{thr_pref}_0.25"), glue("{thr_pref}_0.5"), glue("{thr_pref}_0.75"), glue("{thr_pref}_1"), glue("{thr_pref}_2"),
-																					glue("{thr_pref}_3"), glue("{thr_pref}_4"), glue("{thr_pref}_5"), glue("{thr_pref}_10"), glue("{thr_pref}_25")) #, glue("{thr_pref}_50")
+																					glue("{thr_pref}_3"), glue("{thr_pref}_4"), glue("{thr_pref}_5"), glue("{thr_pref}_10"), glue("{thr_pref}_25"))
 table_names_periods <- c(2)
 table_names_thresholds <- c(0.25,0.5,0.75,1,2,3,4,5,10,25)
 table_combs <- do.call(paste, c(expand.grid(table_names_periods, table_names_thresholds), sep="_"))
@@ -868,16 +1054,27 @@ PERIOD_INTEREST <- 2
 major_lineages <- c("EU1_B.1.177","Alpha_B.1.1.7","Delta_AY.4.*", "Delta_other","Other") #"Beta_B.1.351","Gamma_P.1"
 
 clustering_model_fitting("results/02_sc2_root_to_nov2021","period2")
+false_discovery_rate_syn("results/02_sc2_root_to_nov2021",out_folder)
+plot_tbc_stats("results/02_sc2_root_to_nov2021",out_folder)
+stacked_nsites_genomic_region_threshold("stat_results/period2/genomewide_plot_non-syn/")
 
+
+print("=========")
+print("PERIOD 3")
+print("=========")
 # FOR PERIOD 3
 thr_pref <- "threshold_quantile"
-path_thresholds <- c(glue("{thr_pref}_0.25"), glue("{thr_pref}_0.5"), glue("{thr_pref}_0.75"), glue("{thr_pref}_1"), glue("{thr_pref}_2"), glue("{thr_pref}_3"), glue("{thr_pref}_4")) #, glue("{thr_pref}_4"), glue("{thr_pref}_5"), glue("{thr_pref}_10"), glue("{thr_pref}_25"))
+path_thresholds <- c(glue("{thr_pref}_0.25"), glue("{thr_pref}_0.5"), glue("{thr_pref}_0.75"), glue("{thr_pref}_1"), glue("{thr_pref}_2"), 
+																					glue("{thr_pref}_3"), glue("{thr_pref}_4"), glue("{thr_pref}_5"), glue("{thr_pref}_10"), glue("{thr_pref}_25"))
 table_names_periods <- c(3)
-table_names_thresholds <- c(0.25,0.5,0.75,1,2,3,4)#,5,10,25) # TODO update based on thresholds
+table_names_thresholds <- c(0.25,0.5,0.75,1,2,3,4,5,10,25)
 table_combs <- do.call(paste, c(expand.grid(table_names_periods, table_names_thresholds), sep="_"))
 out_folder <- "period3"
 PERIOD_INTEREST <- 3
 major_lineages <- c("EU1_B.1.177","Alpha_B.1.1.7","Delta_AY.4.*", "Delta_other","Omicron_BA.1.*","Omicron_BA.2.*","Other") #"Beta_B.1.351","Gamma_P.1","Omicron_BA.*",
 
 clustering_model_fitting("results/03_sc2_whole_period","period3")
+false_discovery_rate_syn("results/03_sc2_whole_period",out_folder)
+plot_tbc_stats("results/03_sc2_whole_period",out_folder)
+stacked_nsites_genomic_region_threshold("stat_results/period3/genomewide_plot_non-syn/")
 

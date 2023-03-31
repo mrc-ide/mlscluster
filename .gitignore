@@ -5,6 +5,7 @@
 *.Rproj
 *.pbs
 data/
+config/old/
 R/hpc/
 results/
 stat_results/
