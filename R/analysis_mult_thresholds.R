@@ -176,9 +176,9 @@ get_most_common_homopls_lineage_interest <- function(df, period_interest, lineag
 	
 	filt_high_thresholds <- filt_low_thresholds <- df_homopl
 	# Get TOP-50 frequent homoplasies when threshold >= 10 (n=2)
-	filt_high_thresholds <- filt_high_thresholds %>% filter(major_lineage==lineage_interest & threshold>=10) %>% slice_max(n=50, order_by=Freq_homopl) %>% arrange(period,threshold,desc(as.numeric(Freq_homopl)))
+	filt_high_thresholds <- filt_high_thresholds %>% filter(major_lineage==lineage_interest & threshold>=10) %>% slice_max(n=30, order_by=Freq_homopl) %>% arrange(period,threshold,desc(as.numeric(Freq_homopl)))
 	# Get TOP-50 frequent homoplasies when threshold <= 5 (n=8)
-	filt_low_thresholds <- filt_low_thresholds %>% filter(major_lineage==lineage_interest & threshold<=5) %>% slice_max(n=50, order_by=Freq_homopl) %>% arrange(period,threshold,desc(as.numeric(Freq_homopl)))
+	filt_low_thresholds <- filt_low_thresholds %>% filter(major_lineage==lineage_interest & threshold<=5) %>% slice_max(n=30, order_by=Freq_homopl) %>% arrange(period,threshold,desc(as.numeric(Freq_homopl)))
 	
 	return(list(filt_high_thresholds, filt_low_thresholds))
 }
@@ -193,7 +193,7 @@ get_most_common_homopls_each_threshold <- function(df) {
 	df_homopl_binded$period <- as.integer(df_homopl_binded$period)
 	df_homopl_binded$threshold <- as.numeric(df_homopl_binded$threshold)
 	df_homopl_binded$Freq_homopl <- as.integer(df_homopl_binded$Freq_homopl)
-	df_homopl_each_threshold <- df_homopl_binded %>% group_by(threshold) %>% slice_max(n=50, order_by=Freq_homopl) %>% arrange(period,threshold,desc(as.numeric(Freq_homopl)))
+	df_homopl_each_threshold <- df_homopl_binded %>% group_by(threshold) %>% slice_max(n=30, order_by=Freq_homopl) %>% arrange(period,threshold,desc(as.numeric(Freq_homopl)))
 	
 	return(df_homopl_each_threshold)
 }
@@ -208,7 +208,7 @@ get_most_common_homopls_abs_freq <- function(df) {
 	df_homopl_binded$threshold <- as.numeric(df_homopl_binded$threshold)
 	df_homopl_binded$Freq_homopl <- as.integer(df_homopl_binded$Freq_homopl)
 	most_common_homopl_abs_freq <- df_homopl_binded[!duplicated(df_homopl_binded$defining_mut),] # Removing duplicates (period and threshold)
-	most_common_homopl_abs_freq <- most_common_homopl_abs_freq %>% slice_max(n=50, order_by=Freq_homopl) %>% arrange(desc(as.numeric(Freq_homopl)),period,threshold)
+	most_common_homopl_abs_freq <- most_common_homopl_abs_freq %>% slice_max(n=30, order_by=Freq_homopl) %>% arrange(desc(as.numeric(Freq_homopl)),period,threshold)
 	return(most_common_homopl_abs_freq)
 }
 
@@ -223,7 +223,7 @@ get_most_common_homopls_s_regions <- function(df) {
 	df_homopl_binded$threshold <- as.numeric(df_homopl_binded$threshold)
 	df_homopl_binded$Freq_homopl <- as.integer(df_homopl_binded$Freq_homopl)
 	most_common_homopl_s_regions <- df_homopl_binded[!duplicated(df_homopl_binded$defining_mut),] # Removing duplicates (period and threshold)
-	most_common_homopl_s_regions <- most_common_homopl_s_regions %>% filter(protein=="S") %>% slice_max(n=50, order_by=Freq_homopl) %>% arrange(period,threshold,desc(as.numeric(Freq_homopl)))
+	most_common_homopl_s_regions <- most_common_homopl_s_regions %>% filter(protein=="S") %>% slice_max(n=30, order_by=Freq_homopl) %>% arrange(period,threshold,desc(as.numeric(Freq_homopl)))
 	return(most_common_homopl_s_regions)
 }
 
@@ -243,7 +243,7 @@ get_most_common_homopls <- function(df_list, out_suffix, is_clustered_flag=TRUE)
 	system(glue("mkdir -p stat_results/{out_folder}/most_common_homopl_{out_suffix}/"))
 	# Each combination will have its own file
 	for(i in 1:length(df_splitted)) {
-		df_splitted_tops[[i]] <- df_splitted[[i]] %>% slice_max(n=50, order_by=Freq_homopl) %>% arrange(period,threshold,desc(as.numeric(as.numeric(Freq_homopl))))
+		df_splitted_tops[[i]] <- df_splitted[[i]] %>% slice_max(n=30, order_by=Freq_homopl) %>% arrange(period,threshold,desc(as.numeric(as.numeric(Freq_homopl))))
 		write.csv(df_splitted_tops[[i]], file=glue("stat_results/{out_folder}/most_common_homopl_{out_suffix}/{unique(df_splitted_tops[[i]]$id)}.csv"), quote=F, row.names=F)
 	}
 
@@ -264,6 +264,8 @@ get_most_common_homopls <- function(df_list, out_suffix, is_clustered_flag=TRUE)
 	return(list(df_splitted_tops, df_splitted_tops_all, df_splitted_tops_all_no_rep))
 }
 
+pal_id <- c("TreeBasedClustering"="#7c9885","Intersection"="#e1ad01", "HyPhy"="#033f63")
+
 bubble_plots_replacements_lineages <- function(df, show_replacements=TRUE, out_suffix) {
 	
 	most_common_lineages_rep <- most_common_lineages_norep <- list()
@@ -280,8 +282,8 @@ bubble_plots_replacements_lineages <- function(df, show_replacements=TRUE, out_s
 				scale_size_area(name="Homoplasy frequency") #+ scale_color_manual(values=c("#7c9885","#e1ad01"), name="Analysis identified")
 			ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/repl_thr_lineage_{major_lineages[i]}.png"), plot=p, width=12, height=15, dpi=600, bg="white")
 			
-			p_ia <- ggplotly(p)
-			htmlwidgets::saveWidget(p_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/repl_thr_lineage_{major_lineages[i]}.html"))
+			#p_ia <- ggplotly(p)
+			#htmlwidgets::saveWidget(p_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/repl_thr_lineage_{major_lineages[i]}.html"))
 			
 			most_common_lineages_rep_first[[i]] <- most_common_lineages_rep[[i]]
 			most_common_lineages_rep_first[[i]] <- most_common_lineages_rep_first[[i]] %>% distinct() %>% group_by(defining_mut) %>% slice_min(n=1, as.numeric(threshold))
@@ -291,26 +293,28 @@ bubble_plots_replacements_lineages <- function(df, show_replacements=TRUE, out_s
 				scale_size_area(name="Homoplasy frequency") #+ scale_color_manual(values=c("#7c9885","#e1ad01"), name="Analysis identified")
 			ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/repl_first_detected_thr_lineage_{major_lineages[i]}.png"), plot=p2, width=12, height=15, dpi=600, bg="white")
 			
-			p2_ia <- ggplotly(p2)
-			htmlwidgets::saveWidget(p2_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/repl_first_detected_thr_lineage_{major_lineages[i]}.html"))
+			#p2_ia <- ggplotly(p2)
+			#htmlwidgets::saveWidget(p2_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/repl_first_detected_thr_lineage_{major_lineages[i]}.html"))
 		} else {
 			
 			p3 <- ggplot(most_common_lineages_norep[[i]], aes(x=as.factor(threshold), y=prot_site, size=Freq_homopl, color=analysis_identified.y)) +
-				geom_point(alpha=0.5) + labs(x="Quantile threshold", y="Protein site", title=glue("Lineage {major_lineages[i]}")) + theme_minimal() + theme(axis.text.y=element_text(size=5)) +
-				scale_size_area(name="Homoplasy frequency") + scale_color_manual(values=c("#7c9885","#e1ad01"), name="Analysis identified")
+				geom_point(alpha=0.5) + labs(x="Quantile threshold", y="Protein site") + theme_minimal() + #title=glue("Lineage {major_lineages[i]}"))
+				theme(axis.text.y = element_text(size=7, color="black"), axis.text.x = element_text(size=8, color="black")) + #theme(axis.text.y=element_text(size=5)) +
+				scale_size_area(name="Homoplasy frequency") + scale_color_manual(values=pal_id, name="Analysis identified")
 			ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/onlysite_thr_lineage_{major_lineages[i]}.png"), plot=p3, width=12, height=15, dpi=600, bg="white")
-			p3_ia <- ggplotly(p3)
-			htmlwidgets::saveWidget(p3_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/onlysite_thr_lineage_{major_lineages[i]}.html"))
+			#p3_ia <- ggplotly(p3)
+			#htmlwidgets::saveWidget(p3_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/onlysite_thr_lineage_{major_lineages[i]}.html"))
 			
 			most_common_lineages_norep_first[[i]] <- most_common_lineages_norep[[i]]
 			most_common_lineages_norep_first[[i]] <- most_common_lineages_norep_first[[i]] %>% distinct() %>% group_by(prot_site) %>% slice_min(n=1, as.numeric(threshold))
 			
 			p4 <- ggplot(most_common_lineages_norep_first[[i]], aes(x=as.factor(threshold), y=prot_site, size=Freq_homopl, color=analysis_identified.y)) +
-				geom_point(alpha=0.5) + labs(x="Quantile threshold (first detected only)", y="Protein site", title=glue("Lineage {major_lineages[i]}")) + theme_minimal() + theme(axis.text.y=element_text(size=5)) +
-				scale_size_area(name="Homoplasy frequency") + scale_color_manual(values=c("#7c9885","#e1ad01"), name="Analysis identified")
-			ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/onlysite_first_detected_thr_lineage_{major_lineages[i]}.png"), plot=p4, width=12, height=15, dpi=600, bg="white")
-			p4_ia <- ggplotly(p4)
-			htmlwidgets::saveWidget(p4_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/onlysite_first_detected_thr_lineage_{major_lineages[i]}.html"))
+				geom_point(alpha=0.5) + labs(x="Quantile threshold (first detected only)", y="Protein site") + theme_minimal() + #, title=glue("Lineage {major_lineages[i]}") 
+			 theme(axis.text.y = element_text(size=7, color="black"), axis.text.x = element_text(size=8, color="black")) + #theme(axis.text.y=element_text(size=5)) +
+				scale_size_area(name="Homoplasy frequency") + scale_color_manual(values=pal_id, name="Analysis identified")
+			ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/onlysite_first_detected_thr_lineage_{major_lineages[i]}.png"), plot=p4, width=10, height=12, dpi=600, bg="white") #12,15
+			#p4_ia <- ggplotly(p4)
+			#htmlwidgets::saveWidget(p4_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/onlysite_first_detected_thr_lineage_{major_lineages[i]}.html"))
 		}
 	
 	}
@@ -340,6 +344,7 @@ bubble_plots <- function(most_common_homopl_df, mut_type, out_suffix) {
 	joined_most_common_indep1$analysis_identified <- ifelse(joined_most_common_indep1$analysis_identified=="TreeBasedClustering;TreeBasedClustering", "TreeBasedClustering", joined_most_common_indep1$analysis_identified)
 	#unique(joined_most_common_indep1$analysis_identified)
 	joined_most_common_indep_ok <- joined_most_common_indep %>% inner_join(joined_most_common_indep1, by="prot_site")
+	joined_most_common_indep_ok[joined_most_common_indep_ok == "HyPhy;TreeBasedClustering"] <- "Intersection"
 	
 	if(mut_type=="non-syn") {
 		joined_most_common_indep_ok$protein <- factor(joined_most_common_indep_ok$protein, levels=lvls_bubble)
@@ -348,7 +353,6 @@ bubble_plots <- function(most_common_homopl_df, mut_type, out_suffix) {
 		joined_most_common_indep_ok$prot_site <- factor(joined_most_common_indep_ok$prot_site, levels=unique( joined_most_common_indep_ok$prot_site[order(joined_most_common_indep_ok$protein, as.numeric(joined_most_common_indep_ok$site) )] ))
 		View(joined_most_common_indep_ok)
 	}
-	
 	
 	system(glue("mkdir -p stat_results/{out_folder}/comparison_bubble_{out_suffix}/"))
 	
@@ -360,7 +364,7 @@ bubble_plots <- function(most_common_homopl_df, mut_type, out_suffix) {
 	
 	p <- ggplot(joined_most_common_indep_ok, aes(y=analysis_identified.y, x=prot_site, color=analysis_identified.y)) + #color=analysis_identified.y
 		geom_point(alpha=0.8) + labs(y="Analyses identified",x="Protein site") + theme_minimal() +
-		scale_color_manual(values=c("#7c9885","#e1ad01", "#033f63")) + theme(legend.position="none", axis.text.x=element_text(size=5, angle=90, vjust = 0.5, hjust=1)) #, aspect.ratio=16/9
+		scale_color_manual(values=pal_id, name="Analysis identified") + theme(legend.position="none", axis.text.x=element_text(size=5, angle=90, vjust = 0.5, hjust=1)) #, aspect.ratio=16/9
 	ggsave(glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/homopl_method_combinations.png"), plot=p, width=15, height=5, dpi=900, bg="white")
 	p_ia <- ggplotly(p)
 	htmlwidgets::saveWidget(p_ia, glue("stat_results/{out_folder}/comparison_bubble_{out_suffix}/homopl_method_combinations.html"))
@@ -804,82 +808,91 @@ clustering_model_fitting <- function(path_stats, out_folder) {
 	# Inspection plots
 	df_syn_clustered_homopl <- rbindlist(joined_mut_sites_clustered_syn, use.names=T, idcol="period_threshold")
 	df_non_syn_clustered_homopl <- rbindlist(joined_mut_sites_clustered_non_syn, use.names=T, idcol="period_threshold")
-
+	
 	df_syn_clustered_homopl <- change_ids(df_syn_clustered_homopl)
 	df_non_syn_clustered_homopl <- change_ids(df_non_syn_clustered_homopl)
-
-	genomewide_plot(df_syn_clustered_homopl, mut_type="syn")
-	genomewide_plot(df_non_syn_clustered_homopl, mut_type="non-syn")
-
-	violin_boxplot_freq_variations(df_syn_clustered_homopl, mut_type="syn")
-	violin_boxplot_freq_variations(df_non_syn_clustered_homopl, mut_type="non-syn")
-
-	stacked_bar_freqs(df_syn_clustered_homopl, mut_type="syn")
-	stacked_bar_freqs(df_non_syn_clustered_homopl, mut_type="non-syn")
-
-	total_amount_unique_homoplasies(df_syn_clustered_homopl, mut_type="syn")
-	total_amount_unique_homoplasies(df_non_syn_clustered_homopl, mut_type="non-syn")
-
-	system(glue("mkdir -p stat_results/{out_folder}/only_clustered_ordered_homopl/"))
-	# SYN
+	
+	df_syn_clustered_homopl <- df_syn_clustered_homopl %>% filter(!(Freq_homopl > 20 | defining_mut %in% OUTLIERS_DROP))
+	df_non_syn_clustered_homopl <- df_non_syn_clustered_homopl %>% filter(!(Freq_homopl > 20 | defining_mut %in% OUTLIERS_DROP))
+	
+	# IMPORTANT: ONLY USE WHEN DOING ARTIFACT REMOVAL
+	# extract_pot_artifacts_g10_freq(df_syn_clustered_homopl, mut_type="syn")
+	# extract_pot_artifacts_g10_freq(df_non_syn_clustered_homopl, mut_type="non-syn")
+	
+	# TODO uncomment later below
+	# 
+	# genomewide_plot(df_syn_clustered_homopl, mut_type="syn")
+	# genomewide_plot(df_non_syn_clustered_homopl, mut_type="non-syn")
+	# 
+	# violin_boxplot_freq_variations(df_syn_clustered_homopl, mut_type="syn")
+	# violin_boxplot_freq_variations(df_non_syn_clustered_homopl, mut_type="non-syn")
+	# 
+	# stacked_bar_freqs(df_syn_clustered_homopl, mut_type="syn")
+	# stacked_bar_freqs(df_non_syn_clustered_homopl, mut_type="non-syn")
+	# 
+	# total_amount_unique_homoplasies(df_syn_clustered_homopl, mut_type="syn")
+	# total_amount_unique_homoplasies(df_non_syn_clustered_homopl, mut_type="non-syn")
+	# 
+	# system(glue("mkdir -p stat_results/{out_folder}/only_clustered_ordered_homopl/"))
+	# # SYN
 	# df_syn_clustered_homopl <- change_ids(df_syn_clustered_homopl)
 	df_syn_clustered_homopl <- df_syn_clustered_homopl[df_syn_clustered_homopl$Freq_homopl >= 5,] # Getting only homoplasies happening at least 5 times
 	df_syn_clustered_homopl <- df_syn_clustered_homopl[order(df_syn_clustered_homopl$defining_mut, decreasing=T),]
-	#hist(df_syn_clustered_homopl$Freq_homopl)
-	write.csv(df_syn_clustered_homopl, glue("stat_results/{out_folder}/only_clustered_ordered_homopl/syn_clustered_homopl_ordered.csv"), quote=F, row.names=F)
-	# NON-SYN
-	# df_non_syn_clustered_homopl <- change_ids(df_non_syn_clustered_homopl)
-	df_non_syn_clustered_homopl <- df_non_syn_clustered_homopl[df_non_syn_clustered_homopl$Freq_homopl >= 5,]
-	df_non_syn_clustered_homopl <- df_non_syn_clustered_homopl[order(df_non_syn_clustered_homopl$defining_mut, decreasing=T),]
-	#hist(df_non_syn_clustered_homopl$Freq_homopl)
-	write.csv(df_non_syn_clustered_homopl, glue("stat_results/{out_folder}/only_clustered_ordered_homopl/non_syn_clustered_homopl_ordered.csv"), quote=F, row.names=F)
-
-	# Counts number of rows for each index
-	df_syn_clustered_homopl_counts <- df_syn_clustered_homopl %>% count(period_threshold)
-	df_non_syn_clustered_homopl_counts <- df_non_syn_clustered_homopl %>% count(period_threshold)
-
+	# #hist(df_syn_clustered_homopl$Freq_homopl)
+	# write.csv(df_syn_clustered_homopl, glue("stat_results/{out_folder}/only_clustered_ordered_homopl/syn_clustered_homopl_ordered.csv"), quote=F, row.names=F)
+	# # NON-SYN
+	# # df_non_syn_clustered_homopl <- change_ids(df_non_syn_clustered_homopl)
+	# df_non_syn_clustered_homopl <- df_non_syn_clustered_homopl[df_non_syn_clustered_homopl$Freq_homopl >= 5,]
+	# df_non_syn_clustered_homopl <- df_non_syn_clustered_homopl[order(df_non_syn_clustered_homopl$defining_mut, decreasing=T),]
+	# #hist(df_non_syn_clustered_homopl$Freq_homopl)
+	# write.csv(df_non_syn_clustered_homopl, glue("stat_results/{out_folder}/only_clustered_ordered_homopl/non_syn_clustered_homopl_ordered.csv"), quote=F, row.names=F)
+	# 
+	# # Counts number of rows for each index
+	# df_syn_clustered_homopl_counts <- df_syn_clustered_homopl %>% count(period_threshold)
+	# df_non_syn_clustered_homopl_counts <- df_non_syn_clustered_homopl %>% count(period_threshold)
+	# 
 	# distribution of freqs per genomic region (JUST TO USE FOR BUBBLE PLOTS, FOLLOWING FUNCTIONS WILL BE ONLY FOR CLUSTERED)
 	df_syn_clustered_homopl_reg_plots_all <- plot_distr_freqs_spec_regions(df_syn_clustered_homopl,"syn",2,all_clust=TRUE)
 	df_non_syn_clustered_homopl_reg_plots_all <- plot_distr_freqs_spec_regions(df_non_syn_clustered_homopl,"non-syn",2,all_clust=TRUE)
-
-	df_syn_clustered_homopl_reg_plots <- plot_distr_freqs_spec_regions(df_syn_clustered_homopl,"syn",2,all_clust=FALSE)
-	df_non_syn_clustered_homopl_reg_plots <- plot_distr_freqs_spec_regions(df_non_syn_clustered_homopl,"non-syn",2,all_clust=FALSE)
-
-	# distribution of freqs per major_lineage
-	df_syn_clustered_homopl_lin_plots <- plot_distr_freqs_major_lineage(df_syn_clustered_homopl,"syn",2,all_clust=FALSE)
-	df_non_syn_clustered_homopl_lin_plots <- plot_distr_freqs_major_lineage(df_non_syn_clustered_homopl,"non-syn",2,all_clust=FALSE)
-
-	system(glue("mkdir -p stat_results/{out_folder}/higher_eq10perc_syn/"))
-	system(glue("mkdir -p stat_results/{out_folder}/higher_eq10perc_non_syn/"))
-	system(glue("mkdir -p stat_results/{out_folder}/lower_eq5perc_syn/"))
-	system(glue("mkdir -p stat_results/{out_folder}/lower_eq5perc_non_syn/"))
-
-	most_common_homopl_syn_period <- most_common_homopl_nonsyn_period <- list()
-	for(k in 1:length(major_lineages)) {
-		# SYN
-		most_common_homopl_syn_period[[k]] <- get_most_common_homopls_lineage_interest(df_syn_clustered_homopl_reg_plots, period_interest=PERIOD_INTEREST, major_lineages[k])
-		write.csv(most_common_homopl_syn_period[[k]][[1]], file=glue("stat_results/{out_folder}/higher_eq10perc_syn/{major_lineages[k]}_top_muts.csv"), quote=F, row.names=F)
-		write.csv(most_common_homopl_syn_period[[k]][[2]], file=glue("stat_results/{out_folder}/lower_eq5perc_syn/{major_lineages[k]}_top_muts.csv"), quote=F, row.names=F)
-		# NON-SYN
-		most_common_homopl_nonsyn_period[[k]] <- get_most_common_homopls_lineage_interest(df_non_syn_clustered_homopl_reg_plots, period_interest=PERIOD_INTEREST, major_lineages[k])
-		write.csv(most_common_homopl_nonsyn_period[[k]][[1]], file=glue("stat_results/{out_folder}/higher_eq10perc_non_syn/{major_lineages[k]}_top_muts.csv"), quote=F, row.names=F)
-		write.csv(most_common_homopl_nonsyn_period[[k]][[2]], file=glue("stat_results/{out_folder}/lower_eq5perc_non_syn/{major_lineages[k]}_top_muts.csv"), quote=F, row.names=F)
-		# TODO add Omicron_BA.* for full period?
-	}
-
-	# TOP50 by absolute frequency
-	most_common_homopl_abs_freq_syn <- get_most_common_homopls_abs_freq(df_syn_clustered_homopl_reg_plots)
-	system(glue("mkdir -p stat_results/{out_folder}/abs_freq/"))
-	write.csv(most_common_homopl_abs_freq_syn, file=glue("stat_results/{out_folder}/abs_freq/syn_top_muts.csv"), quote=F, row.names=F)
-	most_common_homopl_abs_freq_non_syn <- get_most_common_homopls_abs_freq(df_non_syn_clustered_homopl_reg_plots)
-	write.csv(most_common_homopl_abs_freq_non_syn, file=glue("stat_results/{out_folder}/abs_freq/nonsyn_top_muts.csv"), quote=F, row.names=F)
-
-	most_common_homopl_s_syn <- get_most_common_homopls_s_regions(df_syn_clustered_homopl_reg_plots)
-	system(glue("mkdir -p stat_results/{out_folder}/abs_freq_spike/"))
-	write.csv(most_common_homopl_s_syn, file=glue("stat_results/{out_folder}/abs_freq_spike/syn_top_spike_muts.csv"), quote=F, row.names=F)
-	most_common_homopl_s_non_syn <- get_most_common_homopls_s_regions(df_non_syn_clustered_homopl_reg_plots)
-	write.csv(most_common_homopl_s_non_syn, file=glue("stat_results/{out_folder}/abs_freq_spike/nonsyn_top_spike_muts.csv"), quote=F, row.names=F)
-
+	# 
+	# df_syn_clustered_homopl_reg_plots <- plot_distr_freqs_spec_regions(df_syn_clustered_homopl,"syn",2,all_clust=FALSE)
+	# df_non_syn_clustered_homopl_reg_plots <- plot_distr_freqs_spec_regions(df_non_syn_clustered_homopl,"non-syn",2,all_clust=FALSE)
+	# 
+	# # distribution of freqs per major_lineage
+	# df_syn_clustered_homopl_lin_plots <- plot_distr_freqs_major_lineage(df_syn_clustered_homopl,"syn",2,all_clust=FALSE)
+	# df_non_syn_clustered_homopl_lin_plots <- plot_distr_freqs_major_lineage(df_non_syn_clustered_homopl,"non-syn",2,all_clust=FALSE)
+	# 
+	# system(glue("mkdir -p stat_results/{out_folder}/higher_eq10perc_syn/"))
+	# system(glue("mkdir -p stat_results/{out_folder}/higher_eq10perc_non_syn/"))
+	# system(glue("mkdir -p stat_results/{out_folder}/lower_eq5perc_syn/"))
+	# system(glue("mkdir -p stat_results/{out_folder}/lower_eq5perc_non_syn/"))
+	# 
+	# most_common_homopl_syn_period <- most_common_homopl_nonsyn_period <- list()
+	# for(k in 1:length(major_lineages)) {
+	# 	# SYN
+	# 	most_common_homopl_syn_period[[k]] <- get_most_common_homopls_lineage_interest(df_syn_clustered_homopl_reg_plots, period_interest=PERIOD_INTEREST, major_lineages[k])
+	# 	write.csv(most_common_homopl_syn_period[[k]][[1]], file=glue("stat_results/{out_folder}/higher_eq10perc_syn/{major_lineages[k]}_top_muts.csv"), quote=F, row.names=F)
+	# 	write.csv(most_common_homopl_syn_period[[k]][[2]], file=glue("stat_results/{out_folder}/lower_eq5perc_syn/{major_lineages[k]}_top_muts.csv"), quote=F, row.names=F)
+	# 	# NON-SYN
+	# 	most_common_homopl_nonsyn_period[[k]] <- get_most_common_homopls_lineage_interest(df_non_syn_clustered_homopl_reg_plots, period_interest=PERIOD_INTEREST, major_lineages[k])
+	# 	write.csv(most_common_homopl_nonsyn_period[[k]][[1]], file=glue("stat_results/{out_folder}/higher_eq10perc_non_syn/{major_lineages[k]}_top_muts.csv"), quote=F, row.names=F)
+	# 	write.csv(most_common_homopl_nonsyn_period[[k]][[2]], file=glue("stat_results/{out_folder}/lower_eq5perc_non_syn/{major_lineages[k]}_top_muts.csv"), quote=F, row.names=F)
+	# 	# TODO add Omicron_BA.* for full period?
+	# }
+	# 
+	# # TOP50 by absolute frequency
+	# most_common_homopl_abs_freq_syn <- get_most_common_homopls_abs_freq(df_syn_clustered_homopl_reg_plots)
+	# system(glue("mkdir -p stat_results/{out_folder}/abs_freq/"))
+	# write.csv(most_common_homopl_abs_freq_syn, file=glue("stat_results/{out_folder}/abs_freq/syn_top_muts.csv"), quote=F, row.names=F)
+	# most_common_homopl_abs_freq_non_syn <- get_most_common_homopls_abs_freq(df_non_syn_clustered_homopl_reg_plots)
+	# write.csv(most_common_homopl_abs_freq_non_syn, file=glue("stat_results/{out_folder}/abs_freq/nonsyn_top_muts.csv"), quote=F, row.names=F)
+	# 
+	# most_common_homopl_s_syn <- get_most_common_homopls_s_regions(df_syn_clustered_homopl_reg_plots)
+	# system(glue("mkdir -p stat_results/{out_folder}/abs_freq_spike/"))
+	# write.csv(most_common_homopl_s_syn, file=glue("stat_results/{out_folder}/abs_freq_spike/syn_top_spike_muts.csv"), quote=F, row.names=F)
+	# most_common_homopl_s_non_syn <- get_most_common_homopls_s_regions(df_non_syn_clustered_homopl_reg_plots)
+	# write.csv(most_common_homopl_s_non_syn, file=glue("stat_results/{out_folder}/abs_freq_spike/nonsyn_top_spike_muts.csv"), quote=F, row.names=F)
+	# 
 	# is_clustered = 1 (identified by quantile thresholds of stats)
 	most_common_homopl_syn_clust1 <- get_most_common_homopls(df_syn_clustered_homopl_reg_plots_all,"syn_clust1",is_clustered_flag=TRUE)
 	most_common_homopl_non_syn_clust1 <- get_most_common_homopls(df_non_syn_clustered_homopl_reg_plots_all, "non_syn_clust1",is_clustered_flag=TRUE)
@@ -947,16 +960,19 @@ stacked_nsites_genomic_region_threshold <- function(path) {
 	reg_thr_files_df$threshold <- factor(reg_thr_files_df$threshold, levels=table_names_thresholds)
 	reg_thr_files_df$spec_regions <- factor(reg_thr_files_df$spec_regions, levels=lvls_nonsyn_proteins_annots)
 	#View(reg_thr_files_df)
+	View(reg_thr_files_df)
 	
 	system(glue("mkdir -p {path}/stacked_nsites_threshold/"))
 	
 	p <- ggplot(reg_thr_files_df, aes(fill=threshold, x=n, y=spec_regions)) + 
-		geom_bar(position="stack", stat="identity") + scale_fill_manual(values=pal_thresholds, name="Theshold first detected") + theme(axis.text.y = element_text(size=10)) + theme_minimal() +
+		geom_bar(position="stack", stat="identity") + scale_fill_manual(values=pal_thresholds, name="Theshold first detected") + theme(axis.text.y = element_text(size=8,color="black"), axis.text.x=element_text(color="black")) + theme_minimal() +
 		labs(y="Genomic region", x="Number of identified sites")
 	ggsave(glue("{path}/stacked_nsites_threshold/stacked_nsites_region_thr.pdf"), plot=p, width=8, height=6, dpi=600, bg="white")
 	
 	p_ia <- ggplotly(p)
 	htmlwidgets::saveWidget(p_ia,glue("{path}/stacked_nsites_threshold/stacked_nsites_region_thr.html"))
+	
+	return(p)
 }
 
 false_discovery_rate_syn <- function(path_stats, out_folder) {
@@ -1028,14 +1044,21 @@ false_discovery_rate_syn <- function(path_stats, out_folder) {
 	for(j in 1:length(fdr_reg_thr_split)) {
 		p_fdr[[j]] <-	ggplot(fdr_reg_thr_split[[j]], aes(x=as.factor(threshold),y=prop_fdr)) + ggtitle(unique(fdr_reg_thr_split[[j]]$spec_regions)) +
 			geom_point() + geom_path(group=1) + theme_minimal() +  #scale_x_discrete(breaks=c(0.25, 0.5, 0.75, 1, 2, 3, 4, 5, 10, 25)) + 
-			labs(x="Quantile thresholds", y="False Discovery Rate (%)") + theme(axis.text = element_text(size=5), plot.title=element_text(size=6), axis.title=element_text(size=5))
+			labs(x="Quantile thresholds", y="False Discovery Rate (%)") + theme(axis.text = element_text(size=5), plot.title=element_text(size=6), axis.title=element_text(size=7))
 		#ggsave(glue("stat_results/{out_folder}/fdr_syn/FDR_{unique(fdr_reg_thr_split[[j]]$spec_regions)}.png"), width=5, height=4, dpi=600, bg="white")
 	}
 	#print(length(p_fdr))
 	#print(p_fdr)
 	ggarrange(plotlist=p_fdr, ncol=4, nrow=6)
-	ggsave(glue("stat_results/{out_folder}/fdr_syn/fdr_all_regions.png"), width=10, height=12, dpi=600, bg="white")
+	ggsave(glue("stat_results/{out_folder}/fdr_syn/fdr_all_regions.svg"), width=10, height=10, dpi=600, bg="white") #height=12
 	
+}
+
+# Extract potential artifacts for alignment-based analysis (Freq > 10)
+extract_pot_artifacts_g10_freq <- function(df, mut_type) {
+	df_filt <- df[as.numeric(df$Freq_homopl) > 10,]
+	df_filt <- df_filt[order(df_filt$Freq_homopl, decreasing=T),]
+	write.csv(df_filt, glue("stat_results/{out_folder}/{mut_type}_freq_g10.csv"), quote=F, row.names=F)
 }
 
 print("=========")
@@ -1058,6 +1081,7 @@ false_discovery_rate_syn("results/02_sc2_root_to_nov2021",out_folder)
 plot_tbc_stats("results/02_sc2_root_to_nov2021",out_folder)
 stacked_nsites_genomic_region_threshold("stat_results/period2/genomewide_plot_non-syn/")
 
+OUTLIERS_DROP <- c("S:T95I","S:K417N","S:N440K","S:G446S")
 
 print("=========")
 print("PERIOD 3")
@@ -1076,5 +1100,6 @@ major_lineages <- c("EU1_B.1.177","Alpha_B.1.1.7","Delta_AY.4.*", "Delta_other",
 clustering_model_fitting("results/03_sc2_whole_period","period3")
 false_discovery_rate_syn("results/03_sc2_whole_period",out_folder)
 plot_tbc_stats("results/03_sc2_whole_period",out_folder)
-stacked_nsites_genomic_region_threshold("stat_results/period3/genomewide_plot_non-syn/")
+sngrt_r3 <- stacked_nsites_genomic_region_threshold("stat_results/period3/genomewide_plot_non-syn/")
 
+saveRDS(sngrt_r3, "rds/sngrt_r3.rds")

@@ -1,0 +1,309 @@
+library(ape)
+# library(stringr)
+library(tidyverse)
+library(data.table)
+library(dplyr)
+library(stringr)
+#install.packages("splitstackshape")
+library(splitstackshape)
+library(lubridate)
+library(readr)
+library(glue)
+library(reshape2)
+library(ggpubr)
+
+options(scipen=999)
+extract_muts_period <- function(cut_date, period_label) {
+	sc2_md_curated <- readRDS("rds/sc2_md_curated.rds")
+	sc2_md_curated$mutations <- toupper(sc2_md_curated$mutations)
+	#sc2_tre_curated <- readRDS("rds/sc2_tre_curated.rds")
+	# cog_md has 1,729,244, sc2_md_curated has 1,275,670
+	sc2_md_curated <- sc2_md_curated %>% select(sequence_name, sample_date, major_lineage, mutations)
+	sc2_md_curated <- sc2_md_curated[sc2_md_curated$sample_date <= cut_date,]
+	nseqs <- nrow(sc2_md_curated)
+	
+	cog_md_muts <- cSplit(sc2_md_curated, 'mutations', '|', 'long')
+	cog_md_muts$type <- sub("\\:.*", "", cog_md_muts$mutations)
+	cog_md_muts$mut <- sub('.*:', "", cog_md_muts$mutations)
+	cog_md_muts$mut_and_type <- paste0(cog_md_muts$type,":",cog_md_muts$mut)
+
+	cog_md_muts$type  <- factor(cog_md_muts$type, levels = c("SYNSNP","ORF1AB","S","ORF3A","E","M","ORF6","ORF7A","ORF8","N","ORF10"))
+	saveRDS(cog_md_muts, glue("rds/cog_md_muts_FDR_{period_label}.rds"))
+	return(list(cog_md_muts, nseqs))
+}
+
+# Start from here to avoid recomputing counts again
+# cog_md_muts_p2 <- readRDS("rds/cog_md_muts_FDR_period2.rds")
+# cog_md_muts_p3 <- readRDS("rds/cog_md_muts_FDR_period3.rds")
+
+cog_md_muts_p2 <- extract_muts_period(as.Date("2021-11-15"), "period2")
+cog_md_muts_p3 <- extract_muts_period(as.Date("2022-04-30"), "period3")
+
+syn_ranges_df <- read.csv("config/genomic_ranges_plot_syn.tsv", sep="\t", header=T)
+
+compute_muts_match_codons <- function(cog_md_muts, nseqs) {
+	# length(unique(cog_md_muts$mut_and_type)) -> 48394
+	# Get counts and percents
+	cog_md_muts <- cog_md_muts %>% group_by(mut_and_type)  %>% summarise(n = n(), percent = 100*(n / nseqs)) %>% arrange(desc(percent))
+	cog_md_muts <- cog_md_muts[cog_md_muts$n > 100,] #when filter 1000 -> 48394 to 2073; when filter 100 -> 48394 to 9456
+	cog_md_muts$protein <- sub("\\:.*", "", cog_md_muts$mut_and_type)
+	cog_md_muts$mut <- sub('.*:', "", cog_md_muts$mut_and_type)
+	cog_md_muts$mutsite <- str_sub(cog_md_muts$mut_and_type, -1)
+	cog_md_muts$genomic_index <- parse_number(cog_md_muts$mut)
+	# Remove X/N missing sites from NON-SYN and SYN respectively
+	cog_md_muts_non_xn <- cog_md_muts[(cog_md_muts$protein != "SYNSNP" & cog_md_muts$mutsite != "X") | (cog_md_muts$protein == "SYNSNP" & cog_md_muts$mutsite != "N"),]
+	#cog_md_muts_non_n <- cog_md_muts[cog_md_muts$protein == "SYNSNP" & cog_md_muts$mutsite != "N",]
+	
+	# Filter only SYN
+	cog_md_muts_non_xn_syn <- cog_md_muts_non_xn[cog_md_muts_non_xn$protein == "SYNSNP",]
+	# Get exact genomic region (incl NSPs) from mutation
+	setDT(cog_md_muts_non_xn_syn); setDT(syn_ranges_df)
+	cog_md_muts_syn_ranges <- cog_md_muts_non_xn_syn[syn_ranges_df, on=c("protein==name_cog_md","genomic_index>=start","genomic_index<=end"), genomic_region := new_prot_name]
+	
+	# dfs of codon position (1 to 3) and respective nt coordinates
+	codon_1st_pos <- syn_ranges_df %>% rowwise() %>% transmute(new_prot_name, codon_pos=1, coord = list(seq(start, end, by=3))) %>% unnest_longer(coord)
+	codon_2nd_pos <- syn_ranges_df %>% rowwise() %>% transmute(new_prot_name, codon_pos=2, coord = list(seq(start+1, end, by=3))) %>% unnest_longer(coord)
+	codon_3rd_pos <- syn_ranges_df %>% rowwise() %>% transmute(new_prot_name, codon_pos=3, coord = list(seq(start+2, end, by=3))) %>% unnest_longer(coord)
+	all_codon_pos <- rbind(codon_1st_pos, codon_2nd_pos, codon_3rd_pos)
+	
+	# paste 2 columns to make it easier to merge
+	cog_md_muts_syn_ranges$prot_site <- paste0(cog_md_muts_syn_ranges$genomic_region,":",cog_md_muts_syn_ranges$genomic_index) 
+	all_codon_pos$prot_site <- paste0(all_codon_pos$new_prot_name,":",all_codon_pos$coord)
+	
+	# Get polymorphic sites only with respective codon positions (all codons)
+	muts_codons <- merge(cog_md_muts_syn_ranges, all_codon_pos, by="prot_site")
+	nrow(muts_codons[muts_codons$codon_pos == 1,]) #156
+	nrow(muts_codons[muts_codons$codon_pos == 2,]) #323
+	nrow(muts_codons[muts_codons$codon_pos == 3,]) #3205
+	
+	# Get 3rd codon polymorphic sites only with respective codon positions
+	codon_3rd_pos$prot_site <- paste0(codon_3rd_pos$new_prot_name,":",codon_3rd_pos$coord)
+	codon_3rd_pos <- merge(cog_md_muts_syn_ranges, codon_3rd_pos, by="prot_site")
+	
+	# Get 2nd codon polymorphic sites only with respective codon positions
+	codon_2nd_pos$prot_site <- paste0(codon_2nd_pos$new_prot_name,":",codon_2nd_pos$coord)
+	codon_2nd_pos <- merge(cog_md_muts_syn_ranges, codon_2nd_pos, by="prot_site")
+	
+	# Get 1st codon polymorphic sites only with respective codon positions
+	codon_1st_pos$prot_site <- paste0(codon_1st_pos$new_prot_name,":",codon_1st_pos$coord)
+	codon_1st_pos <- merge(cog_md_muts_syn_ranges, codon_1st_pos, by="prot_site")
+	
+	# Get 1st & 2nd codon polymorphic sites only with respective codon positions
+	codon_1st_2nd_pos <- rbind(codon_1st_pos, codon_2nd_pos)
+	return(list(cog_md_muts_syn_ranges, codon_3rd_pos, codon_1st_2nd_pos))
+}
+
+muts_match_codons_p2 <- compute_muts_match_codons(cog_md_muts_p2[[1]], cog_md_muts_p2[[2]])
+muts_match_codons_p3 <- compute_muts_match_codons(cog_md_muts_p3[[1]], cog_md_muts_p3[[2]])
+
+thr <- c(0.25, 0.5, 0.75, 1, 2, 3, 4, 5, 10, 25)
+thr_pref <- "threshold_quantile"
+path_thresholds <- c(glue("{thr_pref}_0.25"), glue("{thr_pref}_0.5"), glue("{thr_pref}_0.75"), glue("{thr_pref}_1"), glue("{thr_pref}_2"), 
+																					glue("{thr_pref}_3"), glue("{thr_pref}_4"), glue("{thr_pref}_5"), glue("{thr_pref}_10"), glue("{thr_pref}_25"))
+
+lvls_proteins <- c("NSP1","NSP2","NSP3","NSP4","NSP5","NSP6","NSP7","NSP8","NSP9","NSP10","NSP12","NSP13","NSP14","NSP15",
+																			"NSP16","S","ORF3A","E","M","ORF6","ORF7A","ORF7B","ORF8","N","ORF10")
+
+fdr_codons_acc <- function(path_stats, cog_md_muts_syn_ranges, codon_3rd_pos, codon_1st_2nd_pos, out_folder) {
+	
+	clustered_dfs <- clustered_dfs_syn <- first_codon_threshold <- sec_codon_threshold <- third_codon_threshold <- first_sec_codon_threshold <- fdr <- epsilon <- list()
+	fdr_regions <- epsilon_regions <- matrix(list(),nrow=length(thr), ncol=length(unique(cog_md_muts_syn_ranges$genomic_region)))
+	#print(dim(fdr_regions))
+	
+	for(i in 1:length(path_thresholds)) {
+		clustered_dfs[[i]] <- read.csv(glue("{path_stats}/{path_thresholds[i]}/clustered_all_df.csv"), header=T)
+		print("threshold")
+		print(thr[i])
+		clustered_dfs[[i]]$syn <- ifelse(clustered_dfs[[i]]$syn == as.character("syn"), 1, 0)
+		clustered_dfs_syn[[i]] <- clustered_dfs[[i]][(clustered_dfs[[i]]$syn == 1) & (clustered_dfs[[i]]$is_clustered==1),]
+		# print("nrow")
+		# print(nrow(clustered_dfs_syn[[i]]))
+		
+		# Extract genome index position
+		rgx_genomic_idx <- regexpr(':[A-Z]{1}[0-9]{1,5}[A-Z*]{1}', clustered_dfs_syn[[i]]$defining_mut)
+		comm_coord <- rep(NA,length(clustered_dfs_syn[[i]]$defining_mut))
+		comm_coord[rgx_genomic_idx != -1] <- str_sub( regmatches(clustered_dfs_syn[[i]]$defining_mut, rgx_genomic_idx), 3, -2)
+		comm_coord <- as.integer(comm_coord)
+		comm_coord_df <- as.data.frame(comm_coord); colnames(comm_coord_df) <- c("genomic_index")
+		clustered_dfs_syn[[i]] <- cbind(clustered_dfs_syn[[i]], comm_coord_df)
+		
+		clustered_dfs_syn[[i]]$protein <- sub("\\:.*", "", clustered_dfs_syn[[i]]$defining_mut)
+		
+		#View(clustered_dfs_syn[[i]])
+		
+		annot_gen_range_positions <- read.csv("config/genomic_ranges_plot_syn.tsv", sep="\t", header=T)
+		setDT(clustered_dfs_syn[[i]]); setDT(annot_gen_range_positions)
+		clustered_dfs_syn[[i]] <- clustered_dfs_syn[[i]][annot_gen_range_positions, on=c("protein==name_cog_md","genomic_index>=start","genomic_index<=end"), genomic_region := new_prot_name]
+		# clustered_dfs_syn[[i]] <- clustered_dfs_syn[[i]][annot_gen_length_positions, on=c("spec_regions==new_prot_name"), aa_length := length]
+		
+		clustered_dfs_syn[[i]]$prot_site <- paste0(clustered_dfs_syn[[i]]$genomic_region,":",clustered_dfs_syn[[i]]$genomic_index)
+		
+		# Merge with 3rd codon positions
+		third_codon_threshold[[i]] <- merge(codon_3rd_pos, clustered_dfs_syn[[i]], by="prot_site", all.x=T)
+		third_codon_threshold[[i]]$threshold <- thr[i]
+		
+		# success = call = 1
+		# failure = no call = 0
+		# if NA, then no call
+		third_codon_threshold[[i]]$success <- ifelse(!is.na(third_codon_threshold[[i]]$defining_mut), yes=1, no=0)
+		# print("Third")
+		# print(nrow(third_codon_threshold[[i]]))
+		# print(nrow(third_codon_threshold[[i]][third_codon_threshold[[i]]$success == 1,]))
+		# print(nrow(third_codon_threshold[[i]][third_codon_threshold[[i]]$success == 0,]))
+		#View(third_codon_threshold[[i]])
+		third_codon_threshold[[i]]$new_prot_name <- sub('.*:', "", third_codon_threshold[[i]]$new_prot_name)
+		third_codon_threshold[[i]] <- third_codon_threshold[[i]] %>% select(new_prot_name, threshold, success)
+		third_codon_threshold[[i]]$threshold <- factor(third_codon_threshold[[i]]$threshold, levels=thr)
+		#print(head(third_codon_threshold[[i]]))
+		
+		# Model for the probability (bernoulli outcome) y ~ threshold , where y is the outcome of being classified a TFP specifically among all 
+		# polymorphic 3rd codon position sites in the genome.
+		
+		# Pick a site at random. The probability that it is called a TFP (success) is n_sites_called (success==1) / n_polymorphic_sites_3rd_codon
+		
+		# FDR = E[y(threshold)] (expected value equals to probability of success, erroneous call)
+		# FDR is the estimated probability that a given site with at least one mutation (ie  a polymorphic site) in the database is erroneously called a TFP
+		fdr[[i]] <- nrow(third_codon_threshold[[i]][third_codon_threshold[[i]]$success == 1,]) / nrow(third_codon_threshold[[i]])
+		fdr[[i]] <- fdr[[i]]*100
+		fdr[[i]] <- as.data.frame(fdr[[i]]); fdr[[i]]$threshold <- thr[i]; colnames(fdr[[i]]) <- c("FDR","threshold")
+		#print(fdr[[i]])
+		
+		gen_regions <- unique(third_codon_threshold[[i]]$new_prot_name)
+		#print(gen_regions)
+		
+		# FDR for each genomic region
+		for(j in 1:length(gen_regions)) {
+			#print("genomic region")
+			print(gen_regions[j])
+			#print(head(third_codon_threshold[[i]]))
+			#print(third_codon_threshold[[i]]$new_prot_name == gen_regions[j])
+			fdr_regions[[i,j]] <- third_codon_threshold[[i]][ third_codon_threshold[[i]]$new_prot_name == gen_regions[j], ]
+			fdr_regions[[i,j]] <- nrow(fdr_regions[[i,j]][fdr_regions[[i,j]]$success == 1,]) / nrow(fdr_regions[[i,j]])
+			fdr_regions[[i,j]] <- fdr_regions[[i,j]]*100
+			fdr_regions[[i,j]] <- as.data.frame(fdr_regions[[i,j]]); fdr_regions[[i,j]]$threshold <- thr[i]; fdr_regions[[i,j]]$gen_region <- gen_regions[j]; colnames(fdr_regions[[i,j]]) <- c("FDR","threshold","gen_region")
+			#print(fdr_regions[[i,j]])
+		}
+		
+		# Separate error rate can be computed relative to the sites at codon positions 1-2
+		# epsilon = FDR* <number TFP calls at positions 1-2> / <number polymorphic sites at position 1-2>
+		
+		first_sec_codon_threshold[[i]] <- merge(codon_1st_2nd_pos, clustered_dfs_syn[[i]], by="prot_site", all.x=T)
+		first_sec_codon_threshold[[i]]$threshold <- thr[i]
+		first_sec_codon_threshold[[i]]$success <- ifelse(!is.na(first_sec_codon_threshold[[i]]$defining_mut), yes=1, no=0)
+		first_sec_codon_threshold[[i]]$new_prot_name <- sub('.*:', "", first_sec_codon_threshold[[i]]$new_prot_name)
+		first_sec_codon_threshold[[i]] <- first_sec_codon_threshold[[i]] %>% select(new_prot_name, threshold, success)
+		# print("First and second combined")
+		# print(nrow(first_sec_codon_threshold[[i]]))
+		# print(nrow(first_sec_codon_threshold[[i]][first_sec_codon_threshold[[i]]$success == 1,]))
+		# print(nrow(first_sec_codon_threshold[[i]][first_sec_codon_threshold[[i]]$success == 0,]))
+		
+		epsilon[[i]] <- fdr[[i]] * nrow(first_sec_codon_threshold[[i]][first_sec_codon_threshold[[i]]$success == 1,]) / nrow(first_sec_codon_threshold[[i]])
+		# print("nrow(first_sec_codon_threshold[[i]][first_sec_codon_threshold[[i]]$success == 1,])")
+		# print(nrow(first_sec_codon_threshold[[i]][first_sec_codon_threshold[[i]]$success == 1,]))
+		# print("nrow(first_sec_codon_threshold[[i]])")
+		# print(nrow(first_sec_codon_threshold[[i]]))
+		# print("epsilon")
+		# print(epsilon[[i]]*100) #percent
+		#epsilon[[i]] <- epsilon[[i]] * 100
+		epsilon[[i]] <- as.data.frame(epsilon[[i]]); epsilon[[i]]$threshold <- thr[i]; colnames(epsilon[[i]]) <- c("epsilon","threshold")
+		#epsilon(fdr[[i]])
+		
+		# epsilon for each genomic region
+		for(j in 1:length(gen_regions)) {
+			#print("genomic region")
+			print(gen_regions[j])
+			#print(head(third_codon_threshold[[i]]))
+			#print(third_codon_threshold[[i]]$new_prot_name == gen_regions[j])
+			epsilon_regions[[i,j]] <- first_sec_codon_threshold[[i]][ first_sec_codon_threshold[[i]]$new_prot_name == gen_regions[j], ]
+			#print( fdr_regions[[i,j]] * nrow(epsilon_regions[[i,j]][ epsilon_regions[[i,j]]$success == 1, ]) / nrow(epsilon_regions[[i,j]]) )
+			#print("3.6")
+			# if(gen_regions[j] == "NSP5" | gen_regions[j] == "NSP16" | gen_regions[j] == "ORF10") {
+			# 	print(gen_regions[j])
+			# 	print("BEFORE CALC STATS")
+			# 	print(epsilon_regions[[i,j]])
+			# }
+			epsilon_regions[[i,j]] <- fdr_regions[[i,j]]$FDR[1] * nrow(epsilon_regions[[i,j]][ epsilon_regions[[i,j]]$success == 1, ]) / nrow(epsilon_regions[[i,j]])
+			epsilon_regions[[i,j]] <- as.data.frame(epsilon_regions[[i,j]]); epsilon_regions[[i,j]]$threshold <- thr[i]; epsilon_regions[[i,j]]$gen_region <- gen_regions[j]; colnames(epsilon_regions[[i,j]]) <- c("epsilon","threshold","gen_region")
+			# if(gen_regions[j] == "NSP5" | gen_regions[j] == "NSP16" | gen_regions[j] == "ORF10") {
+			# 	print(gen_regions[j])
+			# 	print("AFTER CALC STATS")
+			# 	print(epsilon_regions[[i,j]])
+			# }
+			#print(epsilon_regions[[i,j]])
+		}
+	}
+	
+	# Overall FDR and epsilon
+	fdr_join <- rbindlist(fdr)
+	#print(fdr_join)
+	epsilon_join <- rbindlist(epsilon)
+	#print(epsilon_join)
+	
+	fdr_epsilon_join <- fdr_join %>% inner_join(epsilon_join, by="threshold")
+	fdr_epsilon_join <- melt(fdr_epsilon_join, id="threshold")  
+	#fdr_epsilon_join$threshold <- factor(fdr_epsilon_join$threshold, levels=thr[i])
+	#print(fdr_epsilon_join)
+	
+	system(glue("mkdir -p stat_results/{out_folder}/fdr_codons/"))
+	p_overall <- ggplot(fdr_epsilon_join, aes(x=as.factor(threshold), y=value, colour=variable, group=variable)) +
+		geom_line() + geom_point() + ggtitle("Overall") + theme_minimal() +
+		labs(x="Quantile thresholds", y="FDR estimates (%)") + 
+		coord_cartesian(ylim=c(0,60)) +
+		scale_y_continuous(breaks=c(5,10,15,20,40,60)) +
+		theme(axis.text = element_text(size=5,color="black"), plot.title=element_text(size=6), axis.title=element_text(size=7,color="black"))
+	ggsave(glue("stat_results/{out_folder}/fdr_codons/fdr.png"), plot=p_overall, width=5, height=4, dpi=600, bg="white")
+	
+	# FDR and epsilon for each region
+	fdr_regions_join <- do.call(rbind, fdr_regions)
+	#View(fdr_regions_join)
+	#print(fdr_regions_join)
+	
+	epsilon_regions_join <- do.call(rbind, epsilon_regions)
+	#View(fdr_regions_join)
+	#print(epsilon_regions_join)
+	
+	fdr_epsilon_regions_join <- fdr_regions_join %>% inner_join(epsilon_regions_join, by=c("threshold","gen_region"))
+	fdr_epsilon_regions_join <- melt(fdr_epsilon_regions_join, id=c("threshold","gen_region")) 
+	#View(fdr_epsilon_regions_join)
+	
+	gen_regions <- unique(fdr_epsilon_regions_join$gen_region)
+	gen_regions <- gen_regions[order(match(gen_regions,lvls_proteins))]
+	gen_regions <- gen_regions[ !gen_regions == 'ORF7B'] #remove ORF7b (missing data)
+	
+	# NSP5, NSP16 & ORF8 do not have TFP calls overlapping with 1st and 2nd codon sites (epsilon = 0)
+	# ORF10 does not have 1st+2nd polymorphic sites with Freq>100 (epsilon = NA)
+	p_fdr <- list()
+	for(k in 1:length(gen_regions)) {
+		p_fdr[[k]] <-	fdr_epsilon_regions_join %>% filter(gen_region == gen_regions[k]) %>%
+			ggplot(aes(x=as.factor(threshold),y=value, colour=variable, group=variable)) +
+			geom_line() + geom_point() + ggtitle(gen_regions[k]) + theme_minimal() +
+			coord_cartesian(ylim=c(0,60)) +
+			scale_y_continuous(breaks=c(5,10,15,20,40,60)) +
+			labs(x="Quantile thresholds", y="FDR estimates (%)") + theme(axis.text = element_text(size=5,color="black"), plot.title=element_text(size=6), axis.title=element_text(size=7,color="black"))
+	}
+	p_all <- c(list(p_overall),p_fdr)
+	p_all
+}
+
+fdr_plots_p2 <- fdr_codons_acc("results/ok_bef_artifact_removal/02_sc2_root_to_nov2021", muts_match_codons_p2[[1]], muts_match_codons_p2[[2]], muts_match_codons_p2[[3]], "period2")
+fdr_plots_p3 <- fdr_codons_acc("results/ok_bef_artifact_removal/03_sc2_whole_period", muts_match_codons_p3[[1]], muts_match_codons_p3[[2]], muts_match_codons_p3[[3]], "period3")
+
+rem_labels <- function(ggplot_obj_list) {
+	for(i in 1:length(ggplot_obj_list)) {
+		if(i <= 20) {
+			ggplot_obj_list[[i]] <- ggplot_obj_list[[i]] + theme(axis.text.x=element_blank(), axis.title.x=element_blank())
+		}
+		if(!(i %in% seq(1,25,5))) {
+			ggplot_obj_list[[i]] <- ggplot_obj_list[[i]] + theme(axis.text.y=element_blank(), axis.title.y=element_blank())
+		}
+	}
+	ggplot_obj_list
+}
+
+fdr_plots_p2 <- rem_labels(fdr_plots_p2)
+ggarrange(plotlist=fdr_plots_p2, ncol=5, nrow=5, common.legend = T)
+ggsave(glue("stat_results/ok_bef_artifact_removal/period2/fdr_codons/fdr_all_regions_p2.pdf"), width=10, height=10, dpi=600, bg="white")
+
+fdr_plots_p3 <- rem_labels(fdr_plots_p3)
+ggarrange(plotlist=fdr_plots_p3, ncol=5, nrow=5, common.legend = T)
+ggsave(glue("stat_results/ok_bef_artifact_removal/period3/fdr_codons/fdr_all_regions_p3.pdf"), width=10, height=10, dpi=600, bg="white")
