@@ -1,13 +1,5 @@
-#rm(list=ls())
-library(ape)
-library(stringr)
-library(tidyverse)
-library(data.table)
-#install.packages("splitstackshape")
-library(splitstackshape)
-library(dplyr)
-library(lubridate)
-library(readr)
+libs_load <- c("ape","stringr", "tidyverse","data.table","splitstackshape","dplyr","lubridate","readr")
+invisible( lapply(libs_load, library, character.only=TRUE) )
 
 #source("R/utils.R")
 

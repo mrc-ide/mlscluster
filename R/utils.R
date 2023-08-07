@@ -1,10 +1,27 @@
-library(dplyr)
-library(ggplot2)
-library(glue)
-library(readr)
-library(data.table)
-library(ape)
-library(stringr)
+libs_load <- c("dplyr","ggplot2", "glue","readr","data.table","ape","stringr")
+invisible( lapply(libs_load, library, character.only=TRUE) )
+
+### Remove >99% quantile threshold of Freq_homopl since these sites are clearly outliers
+thr_pref <- "threshold_quantile"
+path_thresholds <- c(glue("{thr_pref}_0.25"), glue("{thr_pref}_0.5"), glue("{thr_pref}_0.75"), glue("{thr_pref}_1"), glue("{thr_pref}_2"),
+																				glue("{thr_pref}_3"), glue("{thr_pref}_4"), glue("{thr_pref}_5"), glue("{thr_pref}_10"), glue("{thr_pref}_25"))
+
+remove_homopl_freq_outliers <- function(path_stats)  {
+	clustered_dfs <- quant <- list()
+	for(i in 1:length(path_thresholds)) {
+		clustered_dfs[[i]] <- read.csv(glue("{path_stats}/{path_thresholds[i]}/clustered_all_df.csv"), header=T)
+		clustered_dfs[[i]]$Freq_homopl <- as.integer(clustered_dfs[[i]]$Freq_homopl)
+		quant[[i]] <- quantile(clustered_dfs[[i]]$Freq_homopl, probs=seq(0,1,1/100))
+		#print(quant[[i]])
+		#print(unname(quant[[i]][names(quant[[i]]) == "99%"]))
+		clustered_dfs[[i]] <- clustered_dfs[[i]][ clustered_dfs[[i]]$Freq_homopl <= unname(quant[[i]][names(quant[[i]]) == "99%"]), ]
+		print(max(clustered_dfs[[i]]$Freq_homopl))
+	}
+	clustered_dfs
+}
+
+#p2_rem_outl <- remove_homopl_freq_outliers("results/02_sc2_root_to_nov2021/")
+#p3_rem_outl <- remove_homopl_freq_outliers("results/03_sc2_whole_period/")
 
 include_major_lineage_column <- function(md_df) {
 	md_df$major_lineage = md_df$lineage

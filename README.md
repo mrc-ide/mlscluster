@@ -1,2 +1,3 @@
-# Tree_Clustering_Fitness
-Genetic and tree-based clustering and variant fitness analysis
+# mlscluster
+
+**[m]ulti[l]evel [s]election [cluster]ing**: tree-based variant fitness clustering algorithm
