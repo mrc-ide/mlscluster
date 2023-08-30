@@ -1,19 +1,15 @@
-libs_load <- c("dplyr","ggplot2", "glue","readr","data.table","ape","stringr")
-invisible( lapply(libs_load, library, character.only=TRUE) )
-
 options(scipen=999)
 
 # Remove >99% quantile threshold of Freq_homopl since these sites are clearly outliers
 remove_homopl_freq_outliers <- function(path_stats)  {
 	clustered_dfs <- quant <- list()
 	for(i in 1:length(path_thresholds)) {
-		clustered_dfs[[i]] <- read.csv(glue("{path_stats}/{path_thresholds[i]}/clustered_all_df.csv"), header=T)
+		clustered_dfs[[i]] <- utils::read.csv(glue::glue("{path_stats}/{path_thresholds[i]}/clustered_all_df.csv"), header=T)
 		clustered_dfs[[i]]$Freq_homopl <- as.integer(clustered_dfs[[i]]$Freq_homopl)
-		quant[[i]] <- quantile(clustered_dfs[[i]]$Freq_homopl, probs=seq(0,1,1/100))
+		quant[[i]] <- stats::quantile(clustered_dfs[[i]]$Freq_homopl, probs=seq(0,1,1/100))
 		clustered_dfs[[i]] <- clustered_dfs[[i]][ clustered_dfs[[i]]$Freq_homopl <= unname(quant[[i]][names(quant[[i]]) == "99%"]), ]
 		print(max(clustered_dfs[[i]]$Freq_homopl))
 	}
-	clustered_dfs
 }
 
 include_major_lineage_column <- function(md_df) {
@@ -46,12 +42,12 @@ include_major_lineage_column <- function(md_df) {
 	# UNCOMMENT FOR PLOTS
 	# md_df_freq <- md_df %>% count(major_lineage, sort=T)
 	# ggplot(data=md_df_freq, aes(x=n, y=major_lineage)) + geom_bar(stat="identity")
-	# ggsave(glue("rds/major_lineage_freqs.png"), width=8, height=5, dpi=600, bg="white")
+	# ggsave(glue::glue("rds/major_lineage_freqs.png"), width=8, height=5, dpi=600, bg="white")
 	md_df_res = subset(md_df, major_lineage != "Recombinant")
 	md_df_res <- md_df_res[!is.na(md_df_res$major_lineage),]
 	# md_df_res_freq <- md_df_res %>% count(major_lineage, sort=T)
 	# ggplot(data=md_df_res_freq, aes(x=n, y=major_lineage)) + geom_bar(stat="identity")
-	# ggsave(glue("rds/major_lineage_freqs_after_exclusions.png"), width=8, height=5, dpi=600, bg="white")
+	# ggsave(glue::glue("rds/major_lineage_freqs_after_exclusions.png"), width=8, height=5, dpi=600, bg="white")
 	
 	return(md_df_res)
 }

@@ -1,7 +1,7 @@
 thr_pref <- "threshold_quantile"
 thr <- c(0.25, 0.5, 0.75, 1, 2, 3, 4, 5, 10, 25)
-path_thresholds <- c(glue("{thr_pref}_0.25"), glue("{thr_pref}_0.5"), glue("{thr_pref}_0.75"), glue("{thr_pref}_1"), glue("{thr_pref}_2"),
-																					glue("{thr_pref}_3"), glue("{thr_pref}_4"), glue("{thr_pref}_5"), glue("{thr_pref}_10"), glue("{thr_pref}_25"))
+path_thresholds <- c(glue::glue("{thr_pref}_0.25"), glue::glue("{thr_pref}_0.5"), glue::glue("{thr_pref}_0.75"), glue::glue("{thr_pref}_1"), glue::glue("{thr_pref}_2"),
+																					glue::glue("{thr_pref}_3"), glue::glue("{thr_pref}_4"), glue::glue("{thr_pref}_5"), glue::glue("{thr_pref}_10"), glue::glue("{thr_pref}_25"))
 
 options(scipen=999)
 
@@ -30,8 +30,8 @@ pal_id <- c("mlscluster"="#7c9885","Intersection"="#e1ad01", "HyPhy"="#033f63")
 # seq_muts_df_counts <- readRDS("rds/polymorphic_site_counts.rds")
 pos_sel_sites <- read.csv("config/positive_selected_sites_20221006.tsv", sep="\t", header=TRUE)
 pos_sel_sites$prot_site <- paste0(pos_sel_sites$protein,":",pos_sel_sites$site)
-annot_gen_range_positions <- read.csv("config/aa_ranges_stat_model.tsv",sep="\t")
-annot_gen_length_positions <- read.csv("config/aa_length_stat_model.tsv",sep="\t")
-syn_ranges_df <- read.csv("config/genomic_ranges_plot_syn.tsv", sep="\t", header=T)
+annot_gen_range_positions <- utils::read.csv("config/aa_ranges_stat_model.tsv",sep="\t")
+annot_gen_length_positions <- utils::read.csv("config/aa_length_stat_model.tsv",sep="\t")
+syn_ranges_df <- utils::read.csv("config/genomic_ranges_plot_syn.tsv", sep="\t", header=T)
 
-marg <- theme(plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm"))
+marg <- ggplot2::theme(plot.margin = ggplot2::margin(0.5, 0.5, 0.5, 0.5, "cm"))

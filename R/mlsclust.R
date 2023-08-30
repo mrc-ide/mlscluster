@@ -1,4 +1,3 @@
-
 #' Title
 #'
 #' @param tre 
@@ -12,36 +11,34 @@
 #' @param defining_mut_threshold 
 #' @param root_on_tip 
 #' @param root_on_tip_sample_time 
+#' @param detailed_output 
 #' @param ncpu 
+#' 
+#' @importFrom ggtree %<+%
+#' @importFrom magrittr %>%
+#' @importFrom data.table := .N
 #'
 #' @return
 #' @export
 #'
 #' @examples
-mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=NULL, max_date=NULL, branch_length_unit="years", defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, ncpu=1) {
-	
-	libs_load <- c("ape","lubridate", "glue","ggtree","ggplot2","data.table","dplyr","tidyr","stringr")
-	invisible( lapply(libs_load, library, character.only=TRUE) )
-	
-	if(ncpu > 1) {
-		library(pbmcapply)
-	}
+mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=NULL, max_date=NULL, branch_length_unit="years", defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, detailed_output=FALSE, ncpu=1) {
 	
 	class(tre) <- "phylo"
 	
 	max_time <- Inf
 	if(!is.null(max_date))
-		max_time <- decimal_date(max_date)
+		max_time <- lubridate::decimal_date(max_date)
 	else
 		max_time <- Sys.Date()
 	
 	min_time <- -Inf
 	if(!is.null(min_date))
-		min_time <- decimal_date(min_date)
+		min_time <- lubridate::decimal_date(min_date)
 	
-	max_time_full <- max(decimal_date(as.Date(amd$sample_date)))
-	min_time_full <- min(decimal_date(as.Date(amd$sample_date)))
-	diff_stimes <- max_time_full - min_time_full
+	#max_time_full <- max(lubridate::decimal_date(as.Date(amd$sample_date)))
+	#min_time_full <- min(lubridate::decimal_date(as.Date(amd$sample_date)))
+	#diff_stimes <- max_time_full - min_time_full
 	
 	# load tree and md data
 	message("Loading tree and metadata and filtering out...")
@@ -49,7 +46,7 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	amd$sample_date <- as.Date(amd$sample_date)
 	stopifnot(all(tre$tip.label %in% amd$sequence_name)) # enforce that all tips are listed on metadata sequence_name column
 	if(!('sample_time') %in% colnames(amd)) {
-		amd$sample_time <- decimal_date(amd$sample_date)
+		amd$sample_time <- lubridate::decimal_date(amd$sample_date)
 	}
 	if(!('lineage' %in% colnames(amd))) {
 		amd$lineage <- 'lineage_not_provided'
@@ -67,28 +64,28 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	
 	if(!(root_on_tip %in% amd$sequence_name)) {
 		stopifnot(root_on_tip %in% tre$tip.label)
-		amd[nrow(amd) + 1,] <- data.frame( sequence_name=root_on_tip, sample_date=date_decimal(root_on_tip_sample_time), lineage=NA, major_lineage=NA, region=NA, sample_time=root_on_tip_sample_time )	
+		amd[nrow(amd) + 1,] <- data.frame( sequence_name=root_on_tip, sample_date=lubridate::date_decimal(root_on_tip_sample_time), lineage=NA, major_lineage=NA, region=NA, sample_time=root_on_tip_sample_time )	
 	}
 	message(paste0("Number of sequences included: ", nrow(amd)))
 	
 	# named vector of sequence_names and sample_times
-	sts <- setNames(amd$sample_time , amd$sequence_name)
+	sts <- stats::setNames(amd$sample_time , amd$sequence_name)
 	amd <- amd[amd$sequence_name %in% tre$tip.label,]
 	
-	#dropped_tips <- setdiff(tre$tip.label, amd$sequence_name)
+	#dropped_tips <- base::setdiff(tre$tip.label, amd$sequence_name)
 	#message(paste0("Dropped tips: ", length(dropped_tips)))
 	
 	#message("Root sequence Wuhan present?")
-	#print("Wuhan/WH04/2020" %in% intersect(tre$tip.label, amd$sequence_name))
+	#print("Wuhan/WH04/2020" %in% base::intersect(tre$tip.label, amd$sequence_name))
 	
-	tre <- keep.tip(tre, intersect(tre$tip.label, amd$sequence_name))
+	tre <- ape::keep.tip(tre, base::intersect(tre$tip.label, amd$sequence_name))
 	tre2 <- tre
-	if(!is.rooted(tre)) {
+	if(!ape::is.rooted(tre)) {
 		stopifnot(root_on_tip %in% tre$tip.label)
 		if(!(root_on_tip %in% tre$tip.label)) {
 			stop("Outgroup sequence missing in the input tree")
 		}
-		tre2 <- root(tre, outgroup=root_on_tip, resolve.root=TRUE)
+		tre2 <- ape::root(tre, outgroup=root_on_tip, resolve.root=TRUE)
 		tre <- tre2
 	}
 	#message(paste0("Tips in the tree: ", length(tre$tip.label)))
@@ -97,12 +94,12 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	# variables and data structures to quickly look up tree data
 	# based on treestructure/tfpscanner code
 	message("Computing node descendants and times...")
-	ntip <- Ntip(tre)
-	nnode <- Nnode(tre)
+	ntip <- ape::Ntip(tre)
+	nnode <- ape::Nnode(tre)
 	
 	# getting 'coalescent' times
 	if(branch_length_unit == "years") {
-		nde <- node.depth.edgelength(tre) # depth of a node using branch lengths
+		nde <- ape::node.depth.edgelength(tre) # depth of a node using branch lengths
 	}else if(branch_length_unit == "days") {
 		tre$edge.length <- tre$edge.length / 365
 		nde <- node.depth.edgelength(tre)
@@ -116,8 +113,8 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	mrst <- max(sts) # most recent sample time
 	tmrca <- mrst - nhs # decimal times of coalescent events
 	
-	poedges <- tre$edge[postorder(tre),] #postorder: traverse from the left subtree to the right subtree then to the root
-	preedges <- tre$edge[rev(postorder(tre)),] #preorder: traverse from the root to the left subtree then to the right subtree
+	poedges <- tre$edge[ape::postorder(tre),] #postorder: traverse from the left subtree to the right subtree then to the root
+	preedges <- tre$edge[rev(ape::postorder(tre)),] #preorder: traverse from the root to the left subtree then to the right subtree
 	
 	# number of descendants
 	ndesc <- rep(0, ntip+nnode) # tips descending
@@ -153,7 +150,7 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	}
 	
 	# descendant nodes including internal ones
-	descendants <- pbmclapply(1:(ntip+nnode), function(tp) { integer(Ndesc[tp]) }, mc.cores = ncpu)
+	descendants <- pbmcapply::pbmclapply(1:(ntip+nnode), function(tp) { integer(Ndesc[tp]) }, mc.cores = ncpu)
 	for(tp in 1:(ntip+nnode)) {
 		descendants[[tp]][1] <- tp
 	}
@@ -182,8 +179,8 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	}
 	
 	# tip labels
-	descendant_ids <- pbmclapply(1:(ntip+nnode), function(tp) {
-		na.omit(tre$tip.label[descendant_tips[[tp]]])
+	descendant_ids <- pbmcapply::pbmclapply(1:(ntip+nnode), function(tp) {
+		stats::na.omit(tre$tip.label[descendant_tips[[tp]]])
 	}, mc.cores = ncpu)
 	
 	# Get descendant tips for node 
@@ -193,9 +190,9 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	}
 	
 	.get_comparison_sister_node <- function(node) {
-		imed_ancestor <- tail(ancestors[[node]], 1)
+		imed_ancestor <- utils::tail(ancestors[[node]], 1)
 		sisters <- tre$edge[ tre$edge[,1] == imed_ancestor, 2 ]
-		comparison_node <- setdiff(sisters, node)
+		comparison_node <- base::setdiff(sisters, node)
 		desc_tips_sisters <- lapply(1:length(sisters), function(tp) descendant_ids[[ sisters[[tp]] ]] )
 		names(desc_tips_sisters) <- lapply(1:length(desc_tips_sisters), function(tp) sisters[[tp]] )
 		
@@ -262,10 +259,10 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 		
 		if(!is.null(comp_res)) {
 			X <- data.frame(sequence_name=c(comp_res[[5]], comp_res[[6]]), time=c(comp_res[[7]], comp_res[[8]]), type=c(rep("node",length(comp_res[[5]])), rep("control",length(comp_res[[6]]))))
-			X <- na.omit(X)
-			model <- suppressWarnings( glm(type=="node" ~ time, data=X, family=binomial(link="logit")) )
+			X <- stats::na.omit(X)
+			model <- suppressWarnings( stats::glm(type=="node" ~ time, data=X, family=stats::binomial(link="logit")) )
 			s <- summary(model)
-			rel_growth <- unname(coef(model)[2]) # * gen_time
+			rel_growth <- unname(stats::coef(model)[2]) # * gen_time
 			p <- s$coefficients[2,4]
 			lg_res_list <- cbind(rel_growth, p, comp_res[[2]])
 		}else {
@@ -288,31 +285,31 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 		
 		vtab_node = sort( table( do.call( c, strsplit( md_itn[[mut_var]], split='\\|' )  ) ) / nrow( md_itn ) )
 		vtab_sister = sort( table( do.call( c, strsplit( md_its[[mut_var]], split='\\|' )  ) ) / nrow( md_its ) )
-		defining_muts <- setdiff( names(vtab_node[vtab_node > defining_mut_threshold]), names(vtab_sister[vtab_sister > defining_mut_threshold]) )
+		defining_muts <- base::setdiff( names(vtab_node[vtab_node > defining_mut_threshold]), names(vtab_sister[vtab_sister > defining_mut_threshold]) )
 		defining_muts
 	}
 	
 	# Detect independent occurences of defining mutations (homoplasies) across different nodes
 	.find_homoplasies <- function(node_list, major_lineage_nodes) {
-		def_muts_nodes <- pbmclapply(1:length(node_list), function(tp) { .node_muts(node_list[[tp]]) }, mc.cores = ncpu)
+		def_muts_nodes <- pbmcapply::pbmclapply(1:length(node_list), function(tp) { .node_muts(node_list[[tp]]) }, mc.cores = ncpu)
 		
-		names(def_muts_nodes) <- pbmclapply( 1:length(node_list), function(tp) { node_list[[tp]] }, mc.cores=ncpu )
-
-		def_muts_nodes_df <- rbindlist( lapply(def_muts_nodes, function(x) { data.table(x) }), idcol="node")
-
-		def_muts_nodes_df <- na.omit(def_muts_nodes_df)
+		names(def_muts_nodes) <- pbmcapply::pbmclapply( 1:length(node_list), function(tp) { node_list[[tp]] }, mc.cores=ncpu )
+		
+		def_muts_nodes_df <- data.table::rbindlist( lapply(def_muts_nodes, function(x) { data.table::data.table(x) }), idcol="node")
+		
+		def_muts_nodes_df <- stats::na.omit(def_muts_nodes_df)
 		names(def_muts_nodes_df) <- c("node","defining_mut")
 		def_muts_nodes_df$defining_mut <- toupper( def_muts_nodes_df$defining_mut )
-
-		def_muts_nodes_df <- merge(def_muts_nodes_df, major_lineage_nodes, by="node")
-
-		tab_def_muts_df <- setDT(def_muts_nodes_df)[, .(Freq_homopl = .N), by = .(defining_mut)]
-
-		homoplasy_count_df <- merge(def_muts_nodes_df, tab_def_muts_df, by="defining_mut")
+		
+		def_muts_nodes_df <- base::merge(def_muts_nodes_df, major_lineage_nodes, by="node")
+		
+		tab_def_muts_df <- data.table::setDT(def_muts_nodes_df)[, .(Freq_homopl = .N), by = .(defining_mut)]
+		
+		homoplasy_count_df <- base::merge(def_muts_nodes_df, tab_def_muts_df, by="defining_mut")
 		homoplasy_count_df <- homoplasy_count_df[as.numeric(homoplasy_count_df$Freq_homopl) > 1,]
-		homoplasy_count_df <- homoplasy_count_df %>% select(defining_mut, node, major_lineage, Freq_homopl)
+		homoplasy_count_df <- homoplasy_count_df %>% dplyr::select(defining_mut, node, major_lineage, Freq_homopl)
 		homoplasy_count_df$node <- as.integer(homoplasy_count_df$node)
-
+		
 		homoplasy_count_df <- as.data.frame(homoplasy_count_df)
 		
 		homoplasy_count_df
@@ -321,11 +318,11 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	# Function to extract major_lineage for target nodes
 	.major_lineage_all_nodes <- function(tips_nodes_list, max_rows=1) {
 		
-		lineages_node <- pbmclapply(1:length(tips_nodes_list), function(tp) {
+		lineages_node <- pbmcapply::pbmclapply(1:length(tips_nodes_list), function(tp) {
 			amd$major_lineage[ match(tips_nodes_list[[tp]], amd$sequence_name) ]
 		}, mc.cores = ncpu)
 		
-		lineage_node_table <- pbmclapply(1:length(tips_nodes_list), function(tp) {
+		lineage_node_table <- pbmcapply::pbmclapply(1:length(tips_nodes_list), function(tp) {
 			sort(table(lineages_node[[tp]]), decreasing=TRUE) / length(lineages_node[[tp]])
 		}, mc.cores = ncpu)
 		
@@ -341,18 +338,17 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 			perc_df[[i]]$Freq <- paste0(round(perc_df[[i]]$Freq*100), "%")
 			perc_df[[i]]$node <- names(tips_nodes_list)[[i]] # node column receive node id
 		}
-		perc_df_res <- rbindlist(perc_df)
+		perc_df_res <- data.table::rbindlist(perc_df)
 		return(perc_df_res)
 	}
 	
 	# compute node stats based on conditions
 	tgt_nodes <- which((ndesc >= min_descendants) & (ndesc <= max_descendants) & (clade_age >= min_cluster_age_yrs))
-	message(glue("Number of target nodes: {length(tgt_nodes)}"))
+	message(glue::glue("Number of target nodes: {length(tgt_nodes)}"))
 	#message("Target nodes are:")
 	#print(tgt_nodes)
 	
 	# Iterate over tgt_nodes (preserving node ids) to get respective descendant tips
-	start <- Sys.time() ######
 	tips_tgt_nodes <- list()
 	idx <- 1
 	for(x in tgt_nodes) {
@@ -378,7 +374,7 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	st0 <- st1 <- st2 <- st3 <- st4 <- comb_stats <- list()
 	for(n in seq_along(tgt_nodes)) { #(ntip+2):(ntip+nnode)
 		if(tgt_nodes[n] %in% report_nodes) {
-			message(glue("Progress: {round(100 * n / length(tgt_nodes))}%"))
+			message(glue::glue("Progress: {round(100 * n / length(tgt_nodes))}%"))
 		}
 		sisters <- .get_comparison_sister_node(tgt_nodes[n])[[1]]
 		if(!is.null(sisters)) {
@@ -400,7 +396,7 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	
 	end <- Sys.time(); total_time <- as.numeric (end - start, units = "mins"); message(paste("Total time elapsed:",total_time,"mins")) ######
 	
-	stats_df <- rbindlist(comb_stats, use.names = FALSE)
+	stats_df <- data.table::rbindlist(comb_stats, use.names = FALSE)
 	colnames(stats_df) <- c("node","defining_muts","comp_sister1","comp_sister2","size1","size2","ratio_sizes","min_time_node","max_time1","max_time2","ratio_persist_time","logistic_growth", "logistic_growth_p", "homoplasies") #"diff_time_sister1","diff_time_sister2", "control_clade(s)" #"major_lineage"
 	stats_df <- as.data.frame(stats_df)
 	
@@ -411,11 +407,19 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	stats_df_unfilt <- stats_df[(stats_df$ratio_sizes > 0) & (stats_df$ratio_persist_time > 0),]
 	rm(stats_df); gc()
 	
-	tips_sisters1 <- pbmclapply(seq_along(tgt_nodes), function(tp) { .get_comparison_sister_node(tgt_nodes[[tp]])[[5]] }, mc.cores = ncpu) 
-	tips_sisters2 <- pbmclapply(seq_along(tgt_nodes), function(tp) { .get_comparison_sister_node(tgt_nodes[[tp]])[[6]] }, mc.cores = ncpu) 
+	rm(rh, stimes, shs, nhs, mrst, tmrca, poedges, preedges, ndesc, Ndesc, tlsts, max_desc_time, min_desc_time, persistence_time, descendants, descendant_tips)
+	gc()
 	
-	invisible(list(stats_df_unfilt, tgt_nodes, homoplasies, tips_sisters1, tips_sisters2, amd))
+	if(detailed_output) {
+		tips_sisters1 <- pbmcapply::pbmclapply(seq_along(tgt_nodes), function(tp) { .get_comparison_sister_node(tgt_nodes[[tp]])[[5]] }, mc.cores = ncpu)
+		tips_sisters2 <- pbmcapply::pbmclapply(seq_along(tgt_nodes), function(tp) { .get_comparison_sister_node(tgt_nodes[[tp]])[[6]] }, mc.cores = ncpu) 
+		
+		return(invisible(list(stats_df_unfilt, tgt_nodes, homoplasies, tips_sisters1, tips_sisters2, amd)))
+	} else {
+		return(invisible(list(stats_df_unfilt, tgt_nodes, homoplasies)))
+	}
 }
+
 
 #' Title
 #'
@@ -430,7 +434,7 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 #' @param threshold_keep_lower 
 #' @param compute_tree_annots 
 #' @param plot_global_mut_freq 
-#' @param write_node_specific_tables 
+#' @param detailed_output 
 #' @param desc_sisters 
 #' @param amd 
 #'
@@ -438,28 +442,28 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 #' @export
 #'
 #' @examples
-run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_dir=paste0("clade_score-",Sys.Date()), quantile_choice=1/100, quantile_threshold_ratio_sizes=1, quantile_threshold_ratio_persist_time=1, quantile_threshold_logit_growth=1, threshold_keep_lower=TRUE, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, write_node_specific_tables=TRUE, desc_sisters, amd) {
+run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_dir=paste0("mlscluster-results-",Sys.Date()), quantile_choice=1/100, quantile_threshold_ratio_sizes=1, quantile_threshold_ratio_persist_time=1, quantile_threshold_logit_growth=1, threshold_keep_lower=TRUE, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, detailed_output=FALSE, desc_sisters, amd) {
 	
-	system(glue("mkdir -p {output_dir}"))
+	system(glue::glue("mkdir -p {output_dir}"))
 	
 	# Authenticate user in GISAID if wants global prevalence of identified mutations
 	if(plot_global_mut_freq) {
-		library(outbreakinfo) #if getting errors try 'sudo apt install libudunits2-dev libgdal-dev'
+		#if getting errors try 'sudo apt install libudunits2-dev libgdal-dev'
 		outbreakinfo::authenticateUser()
 	}
 	
-	stats_df_unfilt <- stats_df_unfilt[order(as.numeric(stats_df_unfilt$ratio_sizes), as.numeric(stats_df_unfilt$ratio_persist_time), as.numeric(stats_df_unfilt$logistic_growth), decreasing=TRUE),]
-	write.csv(stats_df_unfilt, file=glue('{output_dir}/stats_unfiltered.csv'), quote=FALSE, row.names=FALSE)
+	stats_df_unfilt <- stats_df_unfilt[base::order(as.numeric(stats_df_unfilt$ratio_sizes), as.numeric(stats_df_unfilt$ratio_persist_time), as.numeric(stats_df_unfilt$logistic_growth), decreasing=TRUE),]
+	utils::write.csv(stats_df_unfilt, file=glue::glue('{output_dir}/stats_unfiltered.csv'), quote=FALSE, row.names=FALSE)
 	
 	#quantile_options <- c(1/2, 1/3, 1/4, 1/5, 1/6, 1/7, 1/8, 1/9, 1/10)
 	.extract_value_below_quantile_threshold <- function(df, var, quantile_choice_user, quantile_threshold) {
 		if(quantile_choice_user >= 1/400) {
-			quant <- quantile(as.numeric(var), probs=seq(0,1,quantile_choice_user)) #na.rm=TRUE
+			quant <- stats::quantile(as.numeric(var), probs=seq(0,1,quantile_choice_user)) #na.rm=TRUE
 			message("Quantiles")
 			print(quant)
 			value_chosen_quant <- unname(quant[names(quant) == quantile_threshold])
 			value_chosen_quant <- round(value_chosen_quant, digits=5)
-			message(glue("Threshold value at quantile {quantile_threshold}"))
+			message(glue::glue("Threshold value at quantile {quantile_threshold}"))
 			message(value_chosen_quant)
 			if(threshold_keep_lower)
 				res_df <- df[(as.numeric(var) < value_chosen_quant),]
@@ -476,30 +480,30 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	quantile_threshold_ratio_sizes <- paste0(quantile_threshold_ratio_sizes,"%")
 	stats_df_rs_all <- .extract_value_below_quantile_threshold(stats_df_unfilt, stats_df_unfilt$ratio_sizes, quantile_choice, quantile_threshold_ratio_sizes)
 	stats_df_rs <- stats_df_rs_all[, c(1:7,14)]
-	write.csv(stats_df_rs, file=glue('{output_dir}/stats_ratio_size_threshold.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_rs, file=glue::glue('{output_dir}/stats_ratio_size_threshold.csv'), quote=FALSE, row.names=FALSE)
 	
 	# ratio persistence time threshold
 	quantile_threshold_ratio_persist_time <- paste0(quantile_threshold_ratio_persist_time,"%")
 	stats_df_rpt_all <- .extract_value_below_quantile_threshold(stats_df_unfilt, stats_df_unfilt$ratio_persist_time, quantile_choice, quantile_threshold_ratio_persist_time)
-	stats_df_rpt_all <- stats_df_rpt_all[order(as.numeric(stats_df_rpt_all$ratio_persist_time), decreasing=TRUE),]
+	stats_df_rpt_all <- stats_df_rpt_all[base::order(as.numeric(stats_df_rpt_all$ratio_persist_time), decreasing=TRUE),]
 	stats_df_rpt <- stats_df_rpt_all[, c(1:4,8:11,14)]
-	write.csv(stats_df_rpt, file=glue('{output_dir}/stats_ratio_persist_time_threshold.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_rpt, file=glue::glue('{output_dir}/stats_ratio_persist_time_threshold.csv'), quote=FALSE, row.names=FALSE)
 	
 	# logistic growth p-filtered
 	quantile_threshold_logit_growth <- paste0(quantile_threshold_logit_growth,"%") #added
 	stats_df_lg_p_all <- stats_df_unfilt[(stats_df_unfilt$logistic_growth_p > -1) & (stats_df_unfilt$logistic_growth_p <= 0.05),] #stats_df_lg_p <-
 	stats_df_lg_p_all <- .extract_value_below_quantile_threshold(stats_df_lg_p_all, stats_df_lg_p_all$logistic_growth, quantile_choice, quantile_threshold_logit_growth) #added
-	stats_df_lg_p_all <- stats_df_lg_p_all[order(as.numeric(stats_df_lg_p_all$logistic_growth), decreasing=TRUE),]
-	stats_df_lg_p_all <- na.omit(stats_df_lg_p_all)
+	stats_df_lg_p_all <- stats_df_lg_p_all[base::order(as.numeric(stats_df_lg_p_all$logistic_growth), decreasing=TRUE),]
+	stats_df_lg_p_all <- stats::na.omit(stats_df_lg_p_all)
 	stats_df_lg_p <- stats_df_lg_p_all[, c(1,12:13,14)]
-	write.csv(stats_df_lg_p, file=glue('{output_dir}/stats_logit_growth_p_threshold.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_lg_p, file=glue::glue('{output_dir}/stats_logit_growth_p_threshold.csv'), quote=FALSE, row.names=FALSE)
 	rm(stats_df_unfilt); gc()
 	
 	# Get intersection between applied filters
-	stats_df_intersect <- merge(stats_df_rs, stats_df_rpt, by="node")
-	stats_df_intersect <- merge(stats_df_intersect, stats_df_lg_p, by="node")
-	stats_df_intersect <- stats_df_intersect[order(as.numeric(stats_df_intersect$ratio_sizes), as.numeric(stats_df_intersect$ratio_persist_time), as.numeric(stats_df_intersect$logistic_growth), decreasing=TRUE),]
-	write.csv(stats_df_intersect, file=glue('{output_dir}/stats_intersection.csv'), quote=FALSE, row.names=FALSE)
+	stats_df_intersect <- base::merge(stats_df_rs, stats_df_rpt, by="node")
+	stats_df_intersect <- base::merge(stats_df_intersect, stats_df_lg_p, by="node")
+	stats_df_intersect <- stats_df_intersect[base::order(as.numeric(stats_df_intersect$ratio_sizes), as.numeric(stats_df_intersect$ratio_persist_time), as.numeric(stats_df_intersect$logistic_growth), decreasing=TRUE),]
+	utils::write.csv(stats_df_intersect, file=glue::glue('{output_dir}/stats_intersection.csv'), quote=FALSE, row.names=FALSE)
 	
 	# Get union between applied filters to plot trees starting on node
 	stats_df_rs_all <- as.data.frame(stats_df_rs_all); stats_df_rpt_all <- as.data.frame(stats_df_rpt_all); stats_df_lg_p_all <- as.data.frame(stats_df_lg_p_all)
@@ -509,24 +513,24 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 		colnames(stats_df_rpt_all) <- c("node","defining_muts","comp_sister1","comp_sister2","size1","size2","ratio_sizes","min_time_node","max_time1","max_time2","ratio_persist_time","logistic_growth","logistic_growth_p","homoplasies") #"major_lineage"
 	if(nrow(stats_df_lg_p_all) != 0)
 		colnames(stats_df_lg_p_all) <- c("node","defining_muts","comp_sister1","comp_sister2","size1","size2","ratio_sizes","min_time_node","max_time1","max_time2","ratio_persist_time","logistic_growth","logistic_growth_p","homoplasies") #"major_lineage"
-	stats_df_union <- bind_rows(stats_df_rs_all, stats_df_rpt_all, stats_df_lg_p_all)
-	stats_df_union <- stats_df_union[order(as.numeric(stats_df_union$ratio_sizes), as.numeric(stats_df_union$ratio_persist_time), as.numeric(stats_df_union$logistic_growth), decreasing=TRUE),]
-	write.csv(stats_df_union, file=glue('{output_dir}/stats_union.csv'), quote=FALSE, row.names=FALSE)
+	stats_df_union <- dplyr::bind_rows(stats_df_rs_all, stats_df_rpt_all, stats_df_lg_p_all)
+	stats_df_union <- stats_df_union[base::order(as.numeric(stats_df_union$ratio_sizes), as.numeric(stats_df_union$ratio_persist_time), as.numeric(stats_df_union$logistic_growth), decreasing=TRUE),]
+	utils::write.csv(stats_df_union, file=glue::glue('{output_dir}/stats_union.csv'), quote=FALSE, row.names=FALSE)
 	rm(stats_df_rs_all, stats_df_rpt_all, stats_df_lg_p_all); gc()
 	
 	# Annotate homoplasies in: (i) S regions of potential significance
 	.annotate_s_homoplasies <- function(homopl_df) {
-		regions_s <- read.csv("config/spike_regions.tsv", sep="\t", header=TRUE)
+		regions_s <- utils::read.csv("config/spike_regions.tsv", sep="\t", header=TRUE)
 		# If has homoplasy in S
 		homopl_df$s_mut <- ifelse( grepl(homopl_df$defining_mut, pattern ='^[S]:') , "yes", "no")
 		# Get S mut coordinate only
 		rgx_s <- regexpr('^[S]:[A-Z]{1}[0-9]{1,5}[A-Z]{1}', homopl_df$defining_mut)
 		comm_coord <- rep(NA,length(homopl_df$defining_mut))
-		comm_coord[rgx_s != -1] <- str_sub( regmatches(homopl_df$defining_mut, rgx_s) , 4, -2)
+		comm_coord[rgx_s != -1] <- stringr::str_sub( regmatches(homopl_df$defining_mut, rgx_s) , 4, -2)
 		comm_coord <- as.integer(comm_coord)
 		comm_coord_df <- as.data.frame(comm_coord); colnames(comm_coord_df) <- c("s_mut_coord")
 		homopl_df <- cbind(homopl_df, comm_coord_df)
-		setDT(homopl_df); setDT(regions_s)
+		data.table::setDT(homopl_df); data.table::setDT(regions_s)
 		# Check if coordinate within boundaries of regions of interest (NTD, RBD, FCS)
 		homopl_df[regions_s, on=c("s_mut_coord>=start", "s_mut_coord<=end"), s_mut_region_interest := region]
 		
@@ -535,17 +539,17 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	
 	# Annotate homoplasies in N(ucleocapsid) regions of potential significance
 	.annotate_n_homoplasies <- function(homopl_df) {
-		regions_n <- read.csv("config/n_regions.tsv", sep="\t", header=TRUE)
+		regions_n <- utils::read.csv("config/n_regions.tsv", sep="\t", header=TRUE)
 		# If has homoplasy in N
 		homopl_df$n_mut <- ifelse( grepl(homopl_df$defining_mut, pattern ='^[N]:') , "yes", "no")
 		# Get N mut coordinate only
 		rgx_n <- regexpr('^[N]:[A-Z]{1}[0-9]{1,5}[A-Z]{1}', homopl_df$defining_mut)
 		comm_coord <- rep(NA,length(homopl_df$defining_mut))
-		comm_coord[rgx_n != -1] <- str_sub( regmatches(homopl_df$defining_mut, rgx_n) , 4, -2)
+		comm_coord[rgx_n != -1] <- stringr::str_sub( regmatches(homopl_df$defining_mut, rgx_n) , 4, -2)
 		comm_coord <- as.integer(comm_coord)
 		comm_coord_df <- as.data.frame(comm_coord); colnames(comm_coord_df) <- c("n_mut_coord")
 		homopl_df <- cbind(homopl_df, comm_coord_df)
-		setDT(homopl_df); setDT(regions_n)
+		data.table::setDT(homopl_df); data.table::setDT(regions_n)
 		# Check if coordinate within boundaries of region of interest (Linker_domain)
 		homopl_df[regions_n, on=c("n_mut_coord>=start", "n_mut_coord<=end"), n_mut_region_interest := region]
 		
@@ -557,23 +561,23 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 		rgx_aadns <- regexpr('^[A-Za-z]:[A-Z]{1}[0-9]{1,5}[A-Z]{1}', homopl_df$defining_mut)
 		comm_coord_aadns1 <- rep(NA,length(homopl_df$defining_mut))
 		# All genomic regions + wt aa + position (without mutated aa)
-		comm_coord_aadns1[rgx_aadns != -1] <- str_sub( regmatches(homopl_df$defining_mut, rgx_aadns) , 1, -2)
+		comm_coord_aadns1[rgx_aadns != -1] <- stringr::str_sub( regmatches(homopl_df$defining_mut, rgx_aadns) , 1, -2)
 		comm_coord_aadns1_df <- as.data.frame(comm_coord_aadns1); colnames(comm_coord_aadns1_df) <- c("prot_coord_without_mut_site")
 		homopl_df <- cbind(homopl_df, comm_coord_aadns1_df)
-		homopl_df$prot_coord_without_mut_site <- str_sub( homopl_df$defining_mut, 1, -2)
+		homopl_df$prot_coord_without_mut_site <- stringr::str_sub( homopl_df$defining_mut, 1, -2)
 		# Assign nodes with each prot_coord_without_mut_site
-		homopl_aadns_nodes <- homopl_df %>% group_by(prot_coord_without_mut_site) %>% summarize(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% ungroup()
-		homopl_aadns <- merge(homopl_df, homopl_aadns_nodes, by="prot_coord_without_mut_site")
-		homopl_aadns$mut_site <- str_sub( homopl_aadns$defining_mut, -1, -1)
+		homopl_aadns_nodes <- homopl_df %>% dplyr::group_by(prot_coord_without_mut_site) %>% summarize(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% dplyr::ungroup()
+		homopl_aadns <- base::merge(homopl_df, homopl_aadns_nodes, by="prot_coord_without_mut_site")
+		homopl_aadns$mut_site <- stringr::str_sub( homopl_aadns$defining_mut, -1, -1)
 		# Filter repeated rows
 		homopl_aadns <- homopl_aadns[!duplicated(homopl_aadns$defining_mut),]
-		#homopl_aadns_freq <- homopl_aadns %>% group_by(prot_coord_without_mut_site) %>% summarise(Freq=n(), diff_mutated_aa=paste0(na.omit(mut_site), collapse="|"))
-		homopl_aadns_freq <- homopl_aadns %>% group_by(prot_coord_without_mut_site) %>% summarise(Freq_homopl=n())
-		homopl_aadns_final <- merge(homopl_aadns, homopl_aadns_freq, by="prot_coord_without_mut_site")
-		homopl_aadns_final <- homopl_aadns_final %>% select(nodes_homopl, prot_coord_without_mut_site, defining_mut, Freq_homopl.x, major_lineage) #diff_mutated_aa
+		#homopl_aadns_freq <- homopl_aadns %>% dplyr::group_by(prot_coord_without_mut_site) %>% dplyr::summarise(Freq=dplyr::n(), diff_mutated_aa=paste0(na.omit(mut_site), collapse="|"))
+		homopl_aadns_freq <- homopl_aadns %>% dplyr::group_by(prot_coord_without_mut_site) %>% dplyr::summarise(Freq_homopl=dplyr::n())
+		homopl_aadns_final <- base::merge(homopl_aadns, homopl_aadns_freq, by="prot_coord_without_mut_site")
+		homopl_aadns_final <- homopl_aadns_final %>% dplyr::select(nodes_homopl, prot_coord_without_mut_site, defining_mut, Freq_homopl.x, major_lineage) #diff_mutated_aa
 		homopl_aadns_final <- homopl_aadns_final[!duplicated(homopl_aadns_final$prot_coord_without_mut_site),]
 		homopl_aadns_final <- homopl_aadns_final[as.numeric(homopl_aadns_final$Freq_homopl.x) > 1,]
-		homopl_aadns_final <- homopl_aadns_final %>% select(nodes_homopl, defining_mut, Freq_homopl.x, major_lineage)
+		homopl_aadns_final <- homopl_aadns_final %>% dplyr::select(nodes_homopl, defining_mut, Freq_homopl.x, major_lineage)
 		
 		homopl_aadns_final
 	}
@@ -582,7 +586,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	.annotate_adjacent_muts_window_s3 <- function(homopl_df) {
 		window_size <- 3
 		
-		prot_lengths <- read.csv("config/aa_length_prots.tsv", sep="\t", header=TRUE)
+		prot_lengths <- utils::read.csv("config/aa_length_prots.tsv", sep="\t", header=TRUE)
 		prot_lengths$protein <- toupper(prot_lengths$protein)
 		
 		# Create moving windows for each protein size
@@ -597,15 +601,15 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 				prot_windows[[n]] <- as.data.frame(prot_windows[[n]]); colnames(prot_windows[[n]]) <- "window"
 			}
 		}
-		prot_len_ids_df <- rbindlist(prot_len_ids)
-		prot_windows_df <- rbindlist(prot_windows)
+		prot_len_ids_df <- data.table::rbindlist(prot_len_ids)
+		prot_windows_df <- data.table::rbindlist(prot_windows)
 		prot_len_window_combined <- cbind(prot_len_ids_df, prot_windows_df)
-		prot_len_window_combined <- data.frame(prot_len_window_combined, do.call(rbind,str_split(prot_len_window_combined$window,"-")))
+		prot_len_window_combined <- data.frame(prot_len_window_combined, do.call(rbind,stringr::str_split(prot_len_window_combined$window,"-")))
 		colnames(prot_len_window_combined) <- c("protein","window","window_pos1","window_pos2","window_pos3")
 		prot_len_window_combined$window_pos1 <- as.integer(prot_len_window_combined$window_pos1)
 		prot_len_window_combined$window_pos2 <- as.integer(prot_len_window_combined$window_pos2)
 		prot_len_window_combined$window_pos3 <- as.integer(prot_len_window_combined$window_pos3)
-		prot_len_window_combined <- prot_len_window_combined %>% group_by(protein) %>% mutate(window_id = rep(seq(n()), each = window_size, length = n())) %>% ungroup()
+		prot_len_window_combined <- prot_len_window_combined %>% dplyr::group_by(protein) %>% dplyr::mutate(window_id = rep(seq(dplyr::n()), each = window_size, length = dplyr::n())) %>% dplyr::ungroup()
 		
 		# Get protein name of homoplasies
 		homopl_df$protein <- sub("\\:.*", "", homopl_df$defining_mut)
@@ -614,14 +618,14 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 		rgx_amw3 <- regexpr('^[A-Za-z]:[A-Z]{1}[0-9]{1,5}[A-Z]{1}', homopl_df$defining_mut)
 		comm_coord <- rep(NA,length(homopl_df$defining_mut))
 		# Mutation coordinate of homoplasies
-		comm_coord[rgx_amw3 != -1] <- str_sub( regmatches(homopl_df$defining_mut, rgx_amw3) , 4, -2)
+		comm_coord[rgx_amw3 != -1] <- stringr::str_sub( regmatches(homopl_df$defining_mut, rgx_amw3) , 4, -2)
 		comm_coord_df <- as.data.frame(comm_coord); colnames(comm_coord_df) <- c("mut_coord")
 		homopl_df <- cbind(homopl_df, comm_coord_df)
 		homopl_df <- homopl_df[(homopl_df$protein != "SYNSNP"),]
 		homopl_df$mut_coord <- as.integer(homopl_df$mut_coord)
-		homopl_df <- na.omit(homopl_df)
+		homopl_df <- stats::na.omit(homopl_df)
 		
-		homopl_df_merge <- homopl_df %>% left_join(prot_len_window_combined, by="protein", relationship = "many-to-many")
+		homopl_df_merge <- homopl_df %>% dplyr::left_join(prot_len_window_combined, by="protein", relationship = "many-to-many")
 		
 		homopl_df_merge$window_pos1_match <- ifelse(homopl_df_merge$mut_coord == homopl_df_merge$window_pos1, TRUE, FALSE)
 		homopl_df_merge$window_pos2_match <- ifelse(homopl_df_merge$mut_coord == homopl_df_merge$window_pos2, TRUE, FALSE)
@@ -629,18 +633,18 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 		
 		homopl_df_matches <- homopl_df_merge[( (homopl_df_merge$window_pos1_match == TRUE) | (homopl_df_merge$window_pos2_match == TRUE) | (homopl_df_merge$window_pos3_match == TRUE)),]
 		
-		homopl_df_matches_nodes <- homopl_df_matches %>% group_by(defining_mut) %>% summarize(nodes_homopl = paste0(unique(node), collapse="|"), Freq_homopl=length(unique(node))) %>% ungroup()
+		homopl_df_matches_nodes <- homopl_df_matches %>% dplyr::group_by(defining_mut) %>% summarize(nodes_homopl = paste0(unique(node), collapse="|"), Freq_homopl=length(unique(node))) %>% dplyr::ungroup()
 		homopl_df_matches_nodes <- homopl_df_matches_nodes[as.numeric(homopl_df_matches_nodes$Freq_homopl) > 1,]
 		
-		homopl_df_matches_neigh_mut <- homopl_df_matches %>% inner_join(homopl_df_matches_nodes, by="defining_mut")
-		homopl_df_matches_neigh_mut <- homopl_df_matches_neigh_mut %>% select(nodes_homopl, protein, mut_coord, defining_mut, Freq_homopl.x, major_lineage, window, window_id)
-		homopl_df_matches_neigh_mut <- homopl_df_matches_neigh_mut[order(homopl_df_matches_neigh_mut$protein, as.numeric(homopl_df_matches_neigh_mut$mut_coord)),]
+		homopl_df_matches_neigh_mut <- homopl_df_matches %>% dplyr::inner_join(homopl_df_matches_nodes, by="defining_mut")
+		homopl_df_matches_neigh_mut <- homopl_df_matches_neigh_mut %>% dplyr::select(nodes_homopl, protein, mut_coord, defining_mut, Freq_homopl.x, major_lineage, window, window_id)
+		homopl_df_matches_neigh_mut <- homopl_df_matches_neigh_mut[base::order(homopl_df_matches_neigh_mut$protein, as.numeric(homopl_df_matches_neigh_mut$mut_coord)),]
 		if(nrow(homopl_df_matches_neigh_mut) != 0) { #!is.null(homopl_df_matches_neigh_mut)
 			homopl_df_matches_neigh_mut$window_id2 <- paste0(homopl_df_matches_neigh_mut$protein,":",homopl_df_matches_neigh_mut$window_id)
 			homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut[!duplicated(homopl_df_matches_neigh_mut[c("defining_mut","window_id2")]),] #4,8
-			homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final %>% group_by(window_id2) %>% filter(n() != 1)
+			homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final %>% dplyr::group_by(window_id2) %>% dplyr::filter(dplyr::n() != 1)
 			homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final[!duplicated(homopl_df_matches_neigh_mut_final$defining_mut),]
-			homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final %>% select(nodes_homopl, defining_mut, Freq_homopl.x, major_lineage, window, window_id, window_id2)
+			homopl_df_matches_neigh_mut_final <- homopl_df_matches_neigh_mut_final %>% dplyr::select(nodes_homopl, defining_mut, Freq_homopl.x, major_lineage, window, window_id, window_id2)
 			return(homopl_df_matches_neigh_mut_final)
 		}else {
 			homopl_df_matches_neigh_mut_final <- data.frame(nodes_homopl=c(NA),defining_mut=c(NA),Freq_homopl.x=c(NA),major_lineage=c(NA),window=c(NA),window_id=c(NA),window_id2=c(NA))
@@ -651,9 +655,9 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	# Flag know problematic sites listed here: https://github.com/W-L/ProblematicSites_SARS-CoV2
 	.remove_known_problematic_sites <- function(homopl_df) {
 		# Process problematic sites file
-		probl_sites <- read.csv("config/problematic_sites_20221006.tsv", sep="\t", header=TRUE)
+		probl_sites <- utils::read.csv("config/problematic_sites_20221006.tsv", sep="\t", header=TRUE)
 		# Split multiple potential mutated sites (separated by commas) for each site into unique row
-		probl_sites <- probl_sites %>% mutate(aa_alt = strsplit(as.character(aa_alt), ",")) %>% unnest(aa_alt)
+		probl_sites <- probl_sites %>% dplyr::mutate(aa_alt = strsplit(as.character(aa_alt), ",")) %>% tidyr::unnest(aa_alt)
 		probl_sites$aa_prot_site <- toupper( paste0(probl_sites$gene,":",probl_sites$aa_ref,probl_sites$aa_pos,probl_sites$aa_alt) )
 		probl_sites <- probl_sites[probl_sites$filter == "mask",] #only removing sites flagged as 'mask' but not 'caution'
 		
@@ -664,7 +668,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	
 	# Return table with already described positively selected sites (https://observablehq.com/@spond/sars-cov-2-selection-countries) that should not appear here
 	.sanity_check_positively_selected_sites <- function(homopl_df) {
-		pos_sel_sites <- read.csv("config/positive_selected_sites_20221006.tsv", sep="\t", header=TRUE)
+		pos_sel_sites <- utils::read.csv("config/positive_selected_sites_20221006.tsv", sep="\t", header=TRUE)
 		pos_sel_sites$prot_site <- paste0(pos_sel_sites$protein,":",pos_sel_sites$site) 
 		
 		homopl_df$protein <- sub("\\:.*", "", homopl_df$defining_mut)
@@ -673,7 +677,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 		rgx_scpss <- regexpr(':[A-Z]{1}[0-9]{1,5}[A-Z]{1}', homopl_df$defining_mut)
 		comm_coord <- rep(NA,length(homopl_df$defining_mut))
 		# Mutation coordinate of homoplasies
-		comm_coord[rgx_scpss != -1] <- str_sub( regmatches(homopl_df$defining_mut, rgx_scpss), 3, -2)
+		comm_coord[rgx_scpss != -1] <- stringr::str_sub( regmatches(homopl_df$defining_mut, rgx_scpss), 3, -2)
 		comm_coord_df <- as.data.frame(comm_coord); colnames(comm_coord_df) <- c("site")
 		homopl_df <- cbind(homopl_df, comm_coord_df)
 		homopl_df$prot_site <- paste0(homopl_df$protein,":",homopl_df$site)
@@ -687,43 +691,43 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	homoplasies1_all_tgt_nodes <- data.frame(tgt_nodes); colnames(homoplasies1_all_tgt_nodes) <- c("node")
 	#View(homoplasies1_all_tgt_nodes)
 	#View(homoplasies[[1]])
-	homoplasies1_all_tgt_nodes_df <- merge(homoplasies1_all_tgt_nodes, homoplasies, by="node", all.x=TRUE, all.y=FALSE)
+	homoplasies1_all_tgt_nodes_df <- base::merge(homoplasies1_all_tgt_nodes, homoplasies, by="node", all.x=TRUE, all.y=FALSE)
 	rm(homoplasies1_all_tgt_nodes); gc()
-	homoplasies1_all_tgt_nodes_df <- na.omit(homoplasies1_all_tgt_nodes_df)
+	homoplasies1_all_tgt_nodes_df <- stats::na.omit(homoplasies1_all_tgt_nodes_df)
 	homoplasies1_all_tgt_nodes_df <- .remove_known_problematic_sites(homoplasies1_all_tgt_nodes_df)
-	stats_df_homopl_nodes1 <- homoplasies1_all_tgt_nodes_df %>% group_by(defining_mut) %>% summarize(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% ungroup()
-	stats_df_homopl1 <- merge(homoplasies1_all_tgt_nodes_df, stats_df_homopl_nodes1, by="defining_mut")
+	stats_df_homopl_nodes1 <- homoplasies1_all_tgt_nodes_df %>% dplyr::group_by(defining_mut) %>% summarize(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% dplyr::ungroup()
+	stats_df_homopl1 <- base::merge(homoplasies1_all_tgt_nodes_df, stats_df_homopl_nodes1, by="defining_mut")
 	rm(stats_df_homopl_nodes1); gc()
 	stats_df_homopl1 <- stats_df_homopl1[!duplicated(stats_df_homopl1$defining_mut),]
 	stats_df_homopl1 <- .annotate_s_homoplasies(stats_df_homopl1)
 	stats_df_homopl1 <- .annotate_n_homoplasies(stats_df_homopl1)
-	stats_df_homopl1 <- stats_df_homopl1 %>% select(nodes_homopl, defining_mut, Freq_homopl, s_mut,	s_mut_region_interest, n_mut, n_mut_region_interest, major_lineage)
+	stats_df_homopl1 <- stats_df_homopl1 %>% dplyr::select(nodes_homopl, defining_mut, Freq_homopl, s_mut,	s_mut_region_interest, n_mut, n_mut_region_interest, major_lineage)
 	stats_df_homopl1[is.na(stats_df_homopl1)] = ""
-	stats_df_homopl1 <- stats_df_homopl1[order(stats_df_homopl1$s_mut, stats_df_homopl1$s_mut_region_interest, decreasing=TRUE),]
+	stats_df_homopl1 <- stats_df_homopl1[base::order(stats_df_homopl1$s_mut, stats_df_homopl1$s_mut_region_interest, decreasing=TRUE),]
 	stats_df_aadns1 <- .annotate_diff_aa_mut_same_site(homoplasies1_all_tgt_nodes_df)
 	stats_df_aamw1 <- .annotate_adjacent_muts_window_s3(homoplasies1_all_tgt_nodes_df)
 	rm(homoplasies1_all_tgt_nodes_df); gc()
 	stats_df_scpss1 <- .sanity_check_positively_selected_sites(stats_df_homopl1)
 	stats_df_scpss1 <- stats_df_scpss1[, c(1:8)]
 	
-	write.csv(stats_df_homopl1, file=glue('{output_dir}/homoplasy_DETAILS_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
-	write.csv(stats_df_aadns1, file=glue('{output_dir}/homoplasy_SAME_SITE_muts_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
-	write.csv(stats_df_aamw1, file=glue('{output_dir}/homoplasy_NEIGHBOUR_WINDOW_muts_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
-	write.csv(stats_df_scpss1, file=glue('{output_dir}/homoplasy_KNOWN_POSITIVELY_SELECTED_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_homopl1, file=glue::glue('{output_dir}/homoplasy_DETAILS_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_aadns1, file=glue::glue('{output_dir}/homoplasy_SAME_SITE_muts_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_aamw1, file=glue::glue('{output_dir}/homoplasy_NEIGHBOUR_WINDOW_muts_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_scpss1, file=glue::glue('{output_dir}/homoplasy_KNOWN_POSITIVELY_SELECTED_all_tgt_nodes.csv'), quote=FALSE, row.names=FALSE)
 	
 	rm(stats_df_homopl1, stats_df_aadns1, stats_df_aamw1, stats_df_scpss1); gc()
 	
 	# Homoplasies (node detected by stat)
 	stats_df_union$node <- as.integer(stats_df_union$node)
-	homoplasies2_detect_df <- stats_df_union	%>% left_join(homoplasies, by="node", relationship = "many-to-many")
-	homoplasies2_detect_df <- na.omit(homoplasies2_detect_df)
+	homoplasies2_detect_df <- stats_df_union	%>% dplyr::left_join(homoplasies, by="node", relationship = "many-to-many")
+	homoplasies2_detect_df <- stats::na.omit(homoplasies2_detect_df)
 	homoplasies2_detect_df <- .remove_known_problematic_sites(homoplasies2_detect_df)
-	stats_df_homopl_nodes2 <- homoplasies2_detect_df %>% group_by(defining_mut) %>% summarize(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% ungroup()
-	stats_df_homopl2 <- merge(homoplasies2_detect_df, stats_df_homopl_nodes2, by="defining_mut")
+	stats_df_homopl_nodes2 <- homoplasies2_detect_df %>% dplyr::group_by(defining_mut) %>% summarize(nodes_homopl = paste0(stats::na.omit(node), collapse="|")) %>% dplyr::ungroup()
+	stats_df_homopl2 <- base::merge(homoplasies2_detect_df, stats_df_homopl_nodes2, by="defining_mut")
 	rm(stats_df_homopl_nodes2); gc()
 	stats_df_homopl2$Freq_homopl <- NULL
-	stats_df_homopl2_freq <- setDT(stats_df_homopl2)[, .(Freq_homopl = .N), by = .(defining_mut)]
-	stats_df_homopl2_freq_df <- merge(stats_df_homopl2, stats_df_homopl2_freq, by="defining_mut")
+	stats_df_homopl2_freq <- data.table::setDT(stats_df_homopl2)[, .(Freq_homopl = .N), by = .(defining_mut)]
+	stats_df_homopl2_freq_df <- base::merge(stats_df_homopl2, stats_df_homopl2_freq, by="defining_mut")
 	gc(stats_df_homopl2, stats_df_homopl2_freq); gc()
 	stats_df_homopl2_freq_df <- stats_df_homopl2_freq_df[as.numeric(stats_df_homopl2_freq_df$Freq_homopl) > 1,]
 	stats_df_homopl2_freq_df <- .annotate_s_homoplasies(stats_df_homopl2_freq_df)
@@ -747,14 +751,14 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	stats_df_scpss2$is_clustered <- 1
 	
 	if(nrow(stats_df_homopl2_freq_df) != 0) {
-		stats_df_homopl2_freq_df_cp <- stats_df_homopl2_freq_df %>% select(nodes_homopl,defining_mut,Freq_homopl,is_clustered,s_mut_region_interest,n_mut_region_interest, major_lineage) #id_homopl_cat
+		stats_df_homopl2_freq_df_cp <- stats_df_homopl2_freq_df %>% dplyr::select(nodes_homopl,defining_mut,Freq_homopl,is_clustered,s_mut_region_interest,n_mut_region_interest, major_lineage) #id_homopl_cat
 		stats_df_homopl2_freq_df_cp <- stats_df_homopl2_freq_df_cp[!duplicated(stats_df_homopl2_freq_df_cp$defining_mut),]
 	}else {
 		stats_df_homopl2_freq_df_cp <- data.frame(nodes_homopl=c(NA),defining_mut=c(NA),Freq_homopl=c(NA),is_clustered=c(NA),s_mut_region_interest=c(NA),n_mut_region_interest=c(NA), major_lineage=c(NA))
 	}
 	
 	if(nrow(stats_df_aadns2) != 0) {
-		stats_df_aadns2_cp <- stats_df_aadns2 %>% select(nodes_homopl,defining_mut,Freq_homopl.x,is_clustered, major_lineage) #id_homopl_cat
+		stats_df_aadns2_cp <- stats_df_aadns2 %>% dplyr::select(nodes_homopl,defining_mut,Freq_homopl.x,is_clustered, major_lineage) #id_homopl_cat
 		stats_df_aadns2_cp <- stats_df_aadns2_cp[!duplicated(stats_df_aadns2_cp$defining_mut),]
 		stats_df_aadns2_cp$s_mut_region_interest <- ""
 		stats_df_aadns2_cp$n_mut_region_interest <- ""
@@ -772,34 +776,34 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 		stats_df_aamw2_cp <- data.frame(nodes_homopl=c(""),defining_mut=c(""),Freq_homopl.x=c(""),is_clustered=c(""),major_lineage=c(""),s_mut_region_interest=c(""),n_mut_region_interest=c(""))
 	}
 	
-	write.csv(stats_df_homopl2_freq_df, file=glue('{output_dir}/homoplasy_DETAILS_detect_stats.csv'), quote=FALSE, row.names=FALSE)
-	write.csv(stats_df_aadns2, file=glue('{output_dir}/homoplasy_SAME_SITE_muts_detect_stats.csv'), quote=FALSE, row.names=FALSE)
-	write.csv(stats_df_aamw2, file=glue('{output_dir}/homoplasy_NEIGHBOUR_WINDOW_muts_detect_stats.csv'), quote=FALSE, row.names=FALSE)
-	write.csv(stats_df_scpss2, file=glue('{output_dir}/homoplasy_KNOWN_POSITIVELY_SELECTED_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_homopl2_freq_df, file=glue::glue('{output_dir}/homoplasy_DETAILS_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_aadns2, file=glue::glue('{output_dir}/homoplasy_SAME_SITE_muts_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_aamw2, file=glue::glue('{output_dir}/homoplasy_NEIGHBOUR_WINDOW_muts_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_scpss2, file=glue::glue('{output_dir}/homoplasy_KNOWN_POSITIVELY_SELECTED_detect_stats.csv'), quote=FALSE, row.names=FALSE)
 	
 	rm(stats_df_homopl2_freq_df, stats_df_aadns2, stats_df_aamw2); gc()
 	
 	# Homoplasies (node NOT detected by stat)
-	homoplasies3_not_detect <- setdiff(tgt_nodes, stats_df_union$node)
+	homoplasies3_not_detect <- base::setdiff(tgt_nodes, stats_df_union$node)
 	homoplasies3_not_detect <- data.frame(homoplasies3_not_detect); colnames(homoplasies3_not_detect) <- c("node")
-	homoplasies3_not_detect_df <- homoplasies3_not_detect	%>% left_join(homoplasies, by="node")
+	homoplasies3_not_detect_df <- homoplasies3_not_detect	%>% dplyr::left_join(homoplasies, by="node")
 	rm(homoplasies3_not_detect); gc()
-	homoplasies3_not_detect_df <- na.omit(homoplasies3_not_detect_df)
+	homoplasies3_not_detect_df <- stats::na.omit(homoplasies3_not_detect_df)
 	homoplasies3_not_detect_df <- .remove_known_problematic_sites(homoplasies3_not_detect_df)
-	stats_df_homopl_nodes3 <- homoplasies3_not_detect_df %>% group_by(defining_mut) %>% summarize(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% ungroup()
-	stats_df_homopl3 <- merge(homoplasies3_not_detect_df, stats_df_homopl_nodes3, by="defining_mut")
+	stats_df_homopl_nodes3 <- homoplasies3_not_detect_df %>% dplyr::group_by(defining_mut) %>% summarize(nodes_homopl = paste0(stats::na.omit(node), collapse="|")) %>% dplyr::ungroup()
+	stats_df_homopl3 <- base::merge(homoplasies3_not_detect_df, stats_df_homopl_nodes3, by="defining_mut")
 	rm(stats_df_homopl_nodes3); gc()
 	stats_df_homopl3$Freq_homopl <- NULL
-	stats_df_homopl3_freq <- setDT(stats_df_homopl3)[, .(Freq_homopl = .N), by = .(defining_mut)]
-	stats_df_homopl3_freq_df <- merge(stats_df_homopl3, stats_df_homopl3_freq, by="defining_mut")
+	stats_df_homopl3_freq <- data.table::setDT(stats_df_homopl3)[, .(Freq_homopl = .N), by = .(defining_mut)]
+	stats_df_homopl3_freq_df <- base::merge(stats_df_homopl3, stats_df_homopl3_freq, by="defining_mut")
 	rm(stats_df_homopl3, stats_df_homopl3_freq); gc()
 	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df[as.numeric(stats_df_homopl3_freq_df$Freq_homopl) > 1,]
 	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df[!duplicated(stats_df_homopl3_freq_df$defining_mut),]
 	stats_df_homopl3_freq_df <- .annotate_s_homoplasies(stats_df_homopl3_freq_df)
 	stats_df_homopl3_freq_df <- .annotate_n_homoplasies(stats_df_homopl3_freq_df)
-	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df %>% select(nodes_homopl, defining_mut, Freq_homopl, s_mut, s_mut_region_interest, n_mut, n_mut_region_interest, major_lineage)
+	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df %>% dplyr::select(nodes_homopl, defining_mut, Freq_homopl, s_mut, s_mut_region_interest, n_mut, n_mut_region_interest, major_lineage)
 	stats_df_homopl3_freq_df[is.na(stats_df_homopl3_freq_df)] = ""
-	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df[order(stats_df_homopl3_freq_df$s_mut, stats_df_homopl3_freq_df$s_mut_region_interest, decreasing=TRUE),]
+	stats_df_homopl3_freq_df <- stats_df_homopl3_freq_df[base::order(stats_df_homopl3_freq_df$s_mut, stats_df_homopl3_freq_df$s_mut_region_interest, decreasing=TRUE),]
 	stats_df_homopl3_freq_df$is_clustered <- 0
 	
 	stats_df_aadns3 <- .annotate_diff_aa_mut_same_site(homoplasies3_not_detect_df)
@@ -814,17 +818,17 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	rm(homoplasies3_not_detect_df); gc()
 	
 	# Join friendly dfs for statistical analysis
-	prot_lengths <- read.csv("config/aa_length_prots.tsv", sep="\t", header=TRUE)
+	prot_lengths <- utils::read.csv("config/aa_length_prots.tsv", sep="\t", header=TRUE)
 	prot_lengths$protein <- toupper(prot_lengths$protein)
 	
 	if(nrow(stats_df_homopl3_freq_df) != 0) {
-		stats_df_homopl3_freq_df_cp <- stats_df_homopl3_freq_df %>% select(nodes_homopl,defining_mut,Freq_homopl,is_clustered,s_mut_region_interest,n_mut_region_interest, major_lineage) #id_homopl_cat
+		stats_df_homopl3_freq_df_cp <- stats_df_homopl3_freq_df %>% dplyr::select(nodes_homopl,defining_mut,Freq_homopl,is_clustered,s_mut_region_interest,n_mut_region_interest, major_lineage) #id_homopl_cat
 	}else {
 		stats_df_homopl3_freq_df_cp <- data.frame(nodes_homopl=c(NA),defining_mut=c(NA),Freq_homopl=c(NA),is_clustered=c(NA),s_mut_region_interest=c(NA),n_mut_region_interest=c(NA), major_lineage=c(NA))
 	}
 	
 	if(nrow(stats_df_aadns3) != 0) {
-		stats_df_aadns3_cp <- stats_df_aadns3 %>% select(nodes_homopl,defining_mut,Freq_homopl.x,is_clustered, major_lineage) #id_homopl_cat
+		stats_df_aadns3_cp <- stats_df_aadns3 %>% dplyr::select(nodes_homopl,defining_mut,Freq_homopl.x,is_clustered, major_lineage) #id_homopl_cat
 		stats_df_aadns3_cp$s_mut_region_interest <- ""
 		stats_df_aadns3_cp$n_mut_region_interest <- ""
 		colnames(stats_df_aadns3_cp) <-  c("nodes_homopl","defining_mut","Freq_homopl","is_clustered","major_lineage","s_mut_region_interest","n_mut_region_interest") #"id_homopl_cat"
@@ -838,55 +842,54 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 		colnames(stats_df_aamw3_cp) <- c("nodes_homopl","defining_mut","Freq_homopl","is_clustered","major_lineage","s_mut_region_interest","n_mut_region_interest") #"id_homopl_cat"
 	}
 	
-	write.csv(stats_df_homopl3_freq_df, file=glue('{output_dir}/homoplasy_DETAILS_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
-	write.csv(stats_df_aadns3, file=glue('{output_dir}/homoplasy_SAME_SITE_muts_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
-	write.csv(stats_df_aamw3, file=glue('{output_dir}/homoplasy_NEIGHBOUR_WINDOW_muts_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
-	write.csv(stats_df_scpss3, file=glue('{output_dir}/homoplasy_KNOWN_POSITIVELY_SELECTED_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_homopl3_freq_df, file=glue::glue('{output_dir}/homoplasy_DETAILS_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_aadns3, file=glue::glue('{output_dir}/homoplasy_SAME_SITE_muts_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_aamw3, file=glue::glue('{output_dir}/homoplasy_NEIGHBOUR_WINDOW_muts_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(stats_df_scpss3, file=glue::glue('{output_dir}/homoplasy_KNOWN_POSITIVELY_SELECTED_NOT_detect_stats.csv'), quote=FALSE, row.names=FALSE)
 	
 	rm(stats_df_homopl3_freq_df, stats_df_aadns3, stats_df_aamw3); gc()
 	
-	clustered_df <- rbindlist(list(stats_df_homopl2_freq_df_cp, stats_df_homopl3_freq_df_cp, stats_df_aadns2_cp, stats_df_aadns3_cp, stats_df_aamw2_cp, stats_df_aamw3_cp), fill = TRUE)
+	clustered_df <- data.table::rbindlist(list(stats_df_homopl2_freq_df_cp, stats_df_homopl3_freq_df_cp, stats_df_aadns2_cp, stats_df_aadns3_cp, stats_df_aamw2_cp, stats_df_aamw3_cp), fill = TRUE)
 	message("nrows clustered_df")
 	message(nrow(clustered_df))
 	clustered_df$protein <- sub("\\:.*", "", clustered_df$defining_mut)
 	clustered_df$protein <- toupper(clustered_df$prot)
-	clustered_df <- clustered_df %>% inner_join(prot_lengths, by="protein")
+	clustered_df <- clustered_df %>% dplyr::inner_join(prot_lengths, by="protein")
 	clustered_df$syn_non_syn <- ifelse(clustered_df$protein == "SYNSNP", "syn", "non-syn")
-	clustered_df <- clustered_df %>% select(defining_mut,major_lineage,Freq_homopl,nodes_homopl,is_clustered,syn_non_syn,s_mut_region_interest,n_mut_region_interest,protein,aa_length)
+	clustered_df <- clustered_df %>% dplyr::select(defining_mut,major_lineage,Freq_homopl,nodes_homopl,is_clustered,syn_non_syn,s_mut_region_interest,n_mut_region_interest,protein,aa_length)
 	clustered_df[clustered_df == ""] <- NA
 	
 	# Make known positively selection dfs compatible to create column stating whether this was independently found under selection
 	stats_df_scpss2_cp <- stats_df_scpss2[!duplicated(stats_df_scpss2$defining_mut),]
-	stats_df_scpss2_cp <- stats_df_scpss2_cp %>% select(nodes_homopl,defining_mut,major_lineage,Freq_homopl,s_mut_region_interest,n_mut_region_interest,is_clustered) #id_homopl_cat,s_mut
-	stats_df_scpss_join <- rbindlist(list(stats_df_scpss2_cp, stats_df_scpss3), fill=TRUE)
+	stats_df_scpss2_cp <- stats_df_scpss2_cp %>% dplyr::select(nodes_homopl,defining_mut,major_lineage,Freq_homopl,s_mut_region_interest,n_mut_region_interest,is_clustered) #id_homopl_cat,s_mut
+	stats_df_scpss_join <- data.table::rbindlist(list(stats_df_scpss2_cp, stats_df_scpss3), fill=TRUE)
 	
 	clustered_df$indep_found_pos_selection <- ifelse(clustered_df$defining_mut %in% stats_df_scpss_join$defining_mut, "yes", "no")
 	rm(stats_df_scpss2_cp, stats_df_scpss_join); gc()
 	# remove duplicates coming from different homoplasy categories
 	clustered_df <- clustered_df[!duplicated(clustered_df$defining_mut)]
-	clustered_contingency_tab <- xtabs(Freq_homopl ~ defining_mut+is_clustered, data=clustered_df) #id_homopl_cat
+	clustered_contingency_tab <- stats::xtabs(Freq_homopl ~ defining_mut+is_clustered, data=clustered_df) #id_homopl_cat
 	clustered_contingency_tab <- as.data.frame(clustered_contingency_tab)
 	clustered_contingency_tab <- clustered_contingency_tab[as.integer(clustered_contingency_tab$Freq) > 0,]
-	write.csv(clustered_df, file=glue('{output_dir}/clustered_all_df.csv'), quote=FALSE, row.names=FALSE)
-	write.csv(clustered_contingency_tab, file=glue('{output_dir}/clustered_contingency_df.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(clustered_df, file=glue::glue('{output_dir}/clustered_all_df.csv'), quote=FALSE, row.names=FALSE)
+	utils::write.csv(clustered_contingency_tab, file=glue::glue('{output_dir}/clustered_contingency_df.csv'), quote=FALSE, row.names=FALSE)
 	
-	message(glue("Nodes matching threshold {ifelse(threshold_keep_lower, '<', '>')} {quantile_threshold_ratio_sizes} quantile of ratio sizes: {nrow(stats_df_rs)}"))
-	message(glue("Nodes matching threshold {ifelse(threshold_keep_lower, '<', '>')} {quantile_threshold_ratio_persist_time} quantile of ratio persistence time: {nrow(stats_df_rpt)}"))
-	message(glue("Nodes matching threshold <= 0.05 of logistic regression p-value: {nrow(stats_df_lg_p)}"))
-	message(glue("Nodes matching all thresholds: {nrow(stats_df_intersect)}"))
-	message(glue("Nodes matching at least one threshold: {nrow(stats_df_union)}"))
+	message(glue::glue("Nodes matching threshold {ifelse(threshold_keep_lower, '<', '>')} {quantile_threshold_ratio_sizes} quantile of ratio sizes: {nrow(stats_df_rs)}"))
+	message(glue::glue("Nodes matching threshold {ifelse(threshold_keep_lower, '<', '>')} {quantile_threshold_ratio_persist_time} quantile of ratio persistence time: {nrow(stats_df_rpt)}"))
+	message(glue::glue("Nodes matching threshold <= 0.05 of logistic regression p-value: {nrow(stats_df_lg_p)}"))
+	message(glue::glue("Nodes matching all thresholds: {nrow(stats_df_intersect)}"))
+	message(glue::glue("Nodes matching at least one threshold: {nrow(stats_df_union)}"))
 	
 	# Plot tree with defining mutations
 	.cluster_tree <- function(tips) {
-		library(phangorn)
 		
-		tr <- keep.tip(tre, tips)
-		ggtr <- ggtree(tr)
+		tr <- ape::keep.tip(tre, tips)
+		ggtr <- ggtree::ggtree(tr)
 		mut_list <- strsplit( amd[match(tips, amd$sequence_name),]$mutations, split="\\|" )
 		tab_mut <- table(do.call(c, mut_list))
 		tab_mut <- tab_mut / Ntip(tr)
 		shared_muts <- names(tab_mut)[tab_mut >= defining_mut_threshold]
-		segregating_muts <- lapply(mut_list, function(x) setdiff(x, shared_muts) )
+		segregating_muts <- lapply(mut_list, function(x) base::setdiff(x, shared_muts) )
 		all_segregating <- Reduce(union, segregating_muts)
 		
 		# remove stops
@@ -910,13 +913,13 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 			aas <- do.call(cbind, aas_list)
 			colnames(aas) <- all_segregating
 			rownames(aas) <- tr$tip.label
-			aas <- aas[,order(sites)]
+			aas <- aas[,base::order(sites)]
 			aas[is.na(aas)] <- "X"
 			sites <- sort(sites)
-			aas2 <- as.phyDat(aas)
-			ap <- ancestral.pars(tr, aas2, return="phyDat")
+			aas2 <- phangorn::as.phyDat(aas)
+			ap <- phangorn::ancestral.pars(tr, aas2, return="phyDat")
 			ap1 <- as.character(ap)
-			for(e in postorder(tr)) {
+			for(e in ape::postorder(tr)) {
 				n <- tr$edge[e, 1]
 				tp <- tr$edge[e, 2]
 				j <- which(ap1[n,] != ap1[tp,])
@@ -929,10 +932,10 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 		
 		node_df <- data.frame(node=1:(Ntip(tr) + Nnode(tr)), annot=annots, stringsAsFactors=FALSE)
 		ggtr1 <- ggtr %<+% node_df
-		ggtr1 <- ggtr1 + geom_label( aes(x = branch, label = annot, size = 5)) #+ geom_tiplab(align=TRUE)
+		ggtr1 <- ggtr1 + ggplot2::geom_label( ggplot2::aes(x = branch, label = annot, size = 5)) #+ geom_tiplab(align=TRUE)
 		ggtr2 <- ggtr1
 		if(length(all_segregating) < 100) {
-			suppressMessages( ggtr2 <- gheatmap(ggtr1, as.data.frame(aas), width=0.66, offset=0.0005, colnames=FALSE, colnames_angle=-90, colnames_position="top", colnames_offset_y=-2) + theme(legend.position="none") )
+			suppressMessages( ggtr2 <- ggtree::gheatmap(ggtr1, as.data.frame(aas), width=0.66, offset=0.0005, colnames=FALSE, colnames_angle=-90, colnames_position="top", colnames_offset_y=-2) + ggplot2::theme(legend.position="none") )
 		}
 		ggtr2
 	}
@@ -998,28 +1001,28 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 		homopl_df <- homopl_df[(homopl_df$protein != "ORF1AB"),]
 		
 		for(i in 1:nrow(homopl_df)) {
-			mut_freq <- getPrevalence(mutations = homopl_df[i,2], logInfo=FALSE)
-			pl <- plotPrevalenceOverTime(mut_freq, title = glue("Prevalence of {homopl_df[i,2]} worldwide"))
-			ggsave(pl, file=glue("{output_dir}/global_mut_freqs/{homopl_df[i,2]}_prevalence.jpg"), width=6, height=5)
+			mut_freq <- outbreakinfo::getPrevalence(mutations = homopl_df[i,2], logInfo=FALSE)
+			pl <- outbreakinfo::plotPrevalenceOverTime(mut_freq, title = glue::glue("Prevalence of {homopl_df[i,2]} worldwide"))
+			ggplot2::ggsave(pl, file=glue::glue("{output_dir}/global_mut_freqs/{homopl_df[i,2]}_prevalence.jpg"), width=6, height=5)
 		}
 	}
 	
 	# Plot global prevalence of mutation for the homoplasies detected
 	if(plot_global_mut_freq) {
 		
-		if(!dir.exists(glue("{output_dir}/global_mut_freqs/")))
-			suppressWarnings( dir.create(glue("{output_dir}/global_mut_freqs/")) )
+		if(!dir.exists(glue::glue("{output_dir}/global_mut_freqs/")))
+			suppressWarnings( dir.create(glue::glue("{output_dir}/global_mut_freqs/")) )
 		
 		.plot_global_mut_freqs_worldwide(stats_df_homopl1)
 		.plot_global_mut_freqs_worldwide(stats_df_aamw1)
 	}
 	
-	if(write_node_specific_tables) { # only plots node specific tables if change this flag to TRUE
+	if(detailed_output) { # only plots node specific tables if change this flag to TRUE
 		if(!is.null(desc_sisters)) {
-			if(!dir.exists(glue("{output_dir}/node_specific/")))
-				suppressWarnings( dir.create(glue("{output_dir}/node_specific/")) )
+			if(!dir.exists(glue::glue("{output_dir}/node_specific/")))
+				suppressWarnings( dir.create(glue::glue("{output_dir}/node_specific/")) )
 			
-			message(glue("Plotting trees + sequences + lineage + region summaries for nodes matching at least one of the thresholds..."))
+			message(glue::glue("Plotting trees + sequences + lineage + region summaries for nodes matching at least one of the thresholds..."))
 			# Only plotting annotated trees, lineage and region summaries for nodes passing at least 1 of 3 criteria
 			for(i in 1:nrow(stats_df_union)) { #length(tgt_nodes)
 				tips <- list(desc_sisters[[1]][[i]], desc_sisters[[2]][[i]])
@@ -1028,16 +1031,16 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 				if(length(tips) > 0) {
 					if(compute_tree_annots) { # tree annotations will only be computed if `write_node_specific_tables`==TRUE AND `compute_tree_annots`==TRUE
 						ggtr <- .cluster_tree(tips)
-						suppressMessages(ggsave(ggtr, file=glue("{output_dir}/node_specific/{stats_df_union[i,1]}_clust_tree.pdf"),height=max(6, floor(length(tips) / 5 )), width = min(44, max(24, sqrt(length(tips)))), limitsize = FALSE  ))
+						suppressMessages(ggplot2::ggsave(ggtr, file=glue::glue("{output_dir}/node_specific/{stats_df_union[i,1]}_clust_tree.pdf"),height=max(6, floor(length(tips) / 5 )), width = min(44, max(24, sqrt(length(tips)))), limitsize = FALSE  ))
 					}
 					tips_df <- amd[ amd$sequence_name %in% tips, ]
-					write.csv(tips_df, file=glue('{output_dir}/node_specific/{stats_df_union[i,1]}_sequences.csv'), quote=FALSE, row.names=FALSE)
+					utils::write.csv(tips_df, file=glue::glue('{output_dir}/node_specific/{stats_df_union[i,1]}_sequences.csv'), quote=FALSE, row.names=FALSE)
 					lineage_summary <- .lineage_summary(tips=tips)
-					write.csv(lineage_summary, file=glue('{output_dir}/node_specific/{stats_df_union[i,1]}_lineage_summary.csv'), quote=FALSE, row.names=FALSE)
+					utils::write.csv(lineage_summary, file=glue::glue('{output_dir}/node_specific/{stats_df_union[i,1]}_lineage_summary.csv'), quote=FALSE, row.names=FALSE)
 					major_lineage_summary <- .major_lineage_summary(tips=tips)
-					write.csv(major_lineage_summary, file=glue('{output_dir}/node_specific/{stats_df_union[i,1]}_MAJOR_lineage_summary.csv'), quote=FALSE, row.names=FALSE)
+					utils::write.csv(major_lineage_summary, file=glue::glue('{output_dir}/node_specific/{stats_df_union[i,1]}_MAJOR_lineage_summary.csv'), quote=FALSE, row.names=FALSE)
 					region_summary <- .region_summary(tips=tips)
-					write.csv(region_summary, file=glue('{output_dir}/node_specific/{stats_df_union[i,1]}_region_summary.csv'), quote=FALSE, row.names=FALSE)
+					utils::write.csv(region_summary, file=glue::glue('{output_dir}/node_specific/{stats_df_union[i,1]}_region_summary.csv'), quote=FALSE, row.names=FALSE)
 				}
 			}
 		}
