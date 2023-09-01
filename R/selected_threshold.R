@@ -1,16 +1,24 @@
-# Function to facilitate comparison between periods including and excluding Omicron muts
-#' Title
-#'
-#' @param path_stats 
-#' @param rm_freq_outliers 
-#' @param thr_index 
-#' @param out_folder 
-#'
-#' @return
+#' Return TFP-homoplasy plots for the selected threshold after FDR inspection
+#' 
+#' @inheritParams stats_multiple_thresholds
+#' @param thr_index Index of the cluster/quantile threshold selected for targeted analysis.
+#'    The default thresholds are: 0.25, 0.5, 0.75, 1, 2, 3, 4, 5, 10, and 25%.
+#'    Therefore, the `thr_index` for threshold 2% is 5 (default).
+#' @param out_folder Output folder which will be appended to `stat_results/` in the working directory 
+#'    to generate results for the selected threshold. Should be different from the folder specified at
+#'    [stats_multiple_thresholds()] to avoid overriding results.
+#'      
+#' @return A list with 4 elements: 
+#'    * `sbf_s` generates a stacked bar plot of unique synonymous 
+#'    homoplasies under multilevel selection (TFPs) by major lineage and genomic region
+#'    * `sbf_ns` returns the same as `sbf_s` but for non-synonymous TFP-homoplasies
+#'    * `gp_ns` return plots of non-synonymous TFP-homoplasy frequencies along each genomic 
+#'    region coloured by major lineage
+#'    * `bubble_non_syn_clust1` returns (i) a plot comparing sites identified by mlscluster 
+#'    (multilevel selection) and a dN/dS HyPhy approach (positive selection), and 
+#'    (ii) a bubble plot of TFP-homoplasy frequencies stratified by major lineage
 #' @export
-#'
-#' @examples
-stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_index, out_folder) {
+stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_index=5, out_folder) {
 	
 	if(dir.exists(path_stats))
 		path <- path_stats
@@ -20,7 +28,7 @@ stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_inde
 	.genomewide_plot <- function(df, mut_type) {
 		
 		if(mut_type == "syn") {
-			genomic_ranges_df <- utils::read.csv("config/genomic_ranges_plot_syn.tsv", header=T, sep="\t")
+			genomic_ranges_df <- utils::read.csv(system.file("extdata", "genomic_ranges_plot_syn.tsv", package="mlscluster"),sep="\t", header=T)
 			# No split for SYN
 			df_freq_genomic_regions_syn <- df %>% dplyr::inner_join(genomic_ranges_df, by=c("spec_regions"="new_prot_name"))
 			df_freq_genomic_regions_syn_first <- df_freq_genomic_regions_syn %>% dplyr::distinct(defining_mut, major_lineage, .keep_all=TRUE) %>% dplyr::group_by(defining_mut) %>% dplyr::slice_min(n=1, defining_mut) #as.numeric(threshold)
@@ -40,7 +48,7 @@ stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_inde
 			
 		}else if(mut_type == "non-syn") {
 			
-			genomic_ranges_df <- utils::read.csv("config/genomic_ranges_plot_non_syn.tsv", header=T, sep="\t")
+			genomic_ranges_df <- utils::read.csv(system.file("extdata", "genomic_ranges_plot_non_syn.tsv", package="mlscluster"),sep="\t", header=T)
 			df_freq_genomic_regions_nonsyn <- df %>% dplyr::inner_join(genomic_ranges_df, by=c("spec_regions"="new_prot_name"))
 			# Split because each protein (ORF1AB + others) has its own relative coordinates 
 			df_freq_genomic_regions_split_nonsyn <- split(df_freq_genomic_regions_nonsyn, df_freq_genomic_regions_nonsyn$protein)
@@ -236,6 +244,7 @@ stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_inde
 	
 	joined_mut_sites_clustered$protein <- sub("\\:.*", "", joined_mut_sites_clustered$defining_mut)
 	
+	annot_gen_range_positions <- utils::read.csv(system.file("extdata", "aa_ranges_stat_model.tsv", package="mlscluster"),sep="\t", header=T)
 	data.table::setDT(joined_mut_sites_clustered); data.table::setDT(annot_gen_range_positions)
 	joined_mut_sites_clustered <- joined_mut_sites_clustered[annot_gen_range_positions, on=c("protein==name_cog_md","genomic_index>=start","genomic_index<=end"), spec_regions := new_prot_name]
 	joined_mut_sites_clustered <- joined_mut_sites_clustered[annot_gen_length_positions, on=c("spec_regions==new_prot_name"), aa_length := length]

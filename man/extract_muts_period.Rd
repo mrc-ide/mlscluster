@@ -2,18 +2,23 @@
 % Please edit documentation in R/fdr.R
 \name{extract_muts_period}
 \alias{extract_muts_period}
-\title{Title}
+\title{Extract all polymorphisms (mutations) in a database for a determined period}
 \usage{
-extract_muts_period(cut_date, period_label)
+extract_muts_period(sc2_md_curated_rds, cut_date)
 }
 \arguments{
-\item{cut_date}{}
+\item{sc2_md_curated_rds}{Same as the \code{amd} parameter from \code{\link[=mlsclust]{mlsclust()}}}
 
-\item{period_label}{}
+\item{cut_date}{Only extract mutations for the samples before (and including) this date (Date object, default: NULL).
+E.g. \code{cut_date=as.Date("2021-11-15")}}
 }
 \value{
-
+A list of 2 elements:
+\itemize{
+\item \code{cog_md_muts} is the data.frame with the protein/type and mutation
+\item \code{nseqs} is the number of rows (sequences) in the \code{sc2_md_curated_rds} loaded data.frame
+}
 }
 \description{
-Title
+Extract all polymorphisms (mutations) in a database for a determined period
 }

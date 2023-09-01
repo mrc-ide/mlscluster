@@ -1,27 +1,43 @@
-#' Title
+#' Compute statistics for sister clades in a time-scaled tree.
+#' 
+#' @description Calculate three statistics for sister clades (ratio of descendant clade sizes, ratio of persistence times, 
+#'     and logistic growth rates) in huge time-scaled phylogenies. Clade-defining homoplasies are matched with these statistics 
+#'     to represent a more reliable set of potential mutations that have an advantage for replication but not for transmission.
 #'
-#' @param tre 
-#' @param amd 
-#' @param min_descendants 
-#' @param max_descendants 
-#' @param min_cluster_age_yrs 
-#' @param min_date 
-#' @param max_date 
-#' @param branch_length_unit 
-#' @param defining_mut_threshold 
-#' @param root_on_tip 
-#' @param root_on_tip_sample_time 
-#' @param detailed_output 
-#' @param ncpu 
+#' @param tre A time-scaled phylogeny in `ape::phylo` form, which can be estimated using treedater, 
+#'     treetime, chronumental, etc. If not rooted, an outgroup contained in the tree and its sample time
+#'     must be provided
+#' @param amd A data frame containing metadata for each tip of the tree. Mandatory columns are: 
+#'     sequence_name, sample_date, lineage, major_lineage, mutations. An optional metadata is:
+#'     region
+#' @param min_descendants Clade must have at least this quantity of tips (integer, default: 10)
+#' @param max_descendants Clade must have at most this quantity of tips (integer, default: 20e3)
+#' @param min_cluster_age_yrs Minimum time span of clade to be included (numeric, default: 1/12)
+#' @param min_date Only include samples after (and including) this date (Date object, default: NULL)
+#' @param max_date Only include samples before (and including) this date (Date object, default: NULL)
+#' @param branch_length_unit How branch lengths were estimated (character) \cr
+#'     Choices are 'years' (default) or 'days' \cr
+#'     'years' should be used for timetrees estimated using tools such as \emph{treedater} and \emph{treetime} \cr
+#'     'days' is appropriate for timetrees estimated using \emph{chronumental}
+#' @param defining_mut_threshold Frequency threshold to for a mutation within a clade to be
+#'     considered a defining mutation (numeric between 0 and 1, default: 0.75)
+#' @param root_on_tip Will root on this tip if the input tree is still not rooted (character, default: "Wuhan/WH04/2020")
+#' @param root_on_tip_sample_time Numeric time that root tip was sampled (numeric, default: 2019.995)
+#' @param detailed_output Boolean. If TRUE, generates objects for clade-, lineage-, and region-specific 
+#'     tables and figures (default: FALSE). These objects are posteriorly used in the [run_diff_thresholds()] to actually
+#'     generate the outputs
+#' @param ncpu Number of CPUs for multicore processing (integer, default: 1)
 #' 
 #' @importFrom ggtree %<+%
 #' @importFrom magrittr %>%
 #' @importFrom data.table := .N
 #'
-#' @return
+#' @return Invisibly returns a list with 3 elements: 
+#'    * the clustering statistics (data.frame), 
+#'    * the target nodes that passed filtering (vector), and
+#'    * homoplasy frequency table (data.frame). If `detailed_output=TRUE` returns 3 additional objects useful for the
+#'    the [run_diff_thresholds()] function.
 #' @export
-#'
-#' @examples
 mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=NULL, max_date=NULL, branch_length_unit="years", defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, detailed_output=FALSE, ncpu=1) {
 	
 	class(tre) <- "phylo"
@@ -102,7 +118,7 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 		nde <- ape::node.depth.edgelength(tre) # depth of a node using branch lengths
 	}else if(branch_length_unit == "days") {
 		tre$edge.length <- tre$edge.length / 365
-		nde <- node.depth.edgelength(tre)
+		nde <- ape::node.depth.edgelength(tre)
 	}else {
 		stop("Choices for 'branch_length_unit' are: 'days' and 'years'")
 	}
@@ -421,27 +437,51 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 }
 
 
-#' Title
+#' Extract mutations under multilevel selection for different cluster/quantile thresholds (0.25 to 25%) of statistics
 #'
-#' @param stats_df_unfilt 
-#' @param tgt_nodes 
-#' @param homoplasies 
-#' @param output_dir 
-#' @param quantile_choice 
-#' @param quantile_threshold_ratio_sizes 
-#' @param quantile_threshold_ratio_persist_time 
-#' @param quantile_threshold_logit_growth 
-#' @param threshold_keep_lower 
-#' @param compute_tree_annots 
-#' @param plot_global_mut_freq 
-#' @param detailed_output 
-#' @param desc_sisters 
-#' @param amd 
+#' @description Detect nodes and their defining-homoplasies with the three statistics for sister clades within a small quantile
+#'    threshold (0.25 to 25%). This means that number of descendants, persistence time or logistic growth rate of the numerator or target 
+#'    is smaller than denominator or comparator, leading to the retrieval of a small (<1) value. This function also performs annotations by
+#'    genomic region, different homoplasies at the same site, and within a 3-amino acid sliding window. It also provides detailed outputs if needed. 
+#' 
+#' @param stats_df_unfilt First list element returned by [mlsclust()]. A data.frame containing node/clade, defining_muts, 
+#'    sister clades, ratio of sizes, ratio of persistence time, logistic growth rate, and if homoplasy.
+#' @param tgt_nodes Second list element returned by [mlsclust()]. A vector with the node identifiers passing filtering criteria given by
+#'    `min_descendants`, `max_descendants`, `min_cluster_age_yrs`, `max_date`, and `min_date` parameters.
+#' @param homoplasies Third list element returned by [mlsclust()]. A data.frame (before matching with the quantile thresholds 
+#'    of the statistics) containing defining_mut, node, major_lineage, Freq_homopl
+#' @param output_dir Directory path where results will be saved
+#' @param quantile_choice Number of subsets of equal size to partition statistics. Numeric value, default is 1/100, meaning 100 splits
+#'    (one for each 1% of the statistics). E.g., 1, 2, 3, 4, 5, ..., 95, 96, 97, 98, 99, 100%
+#' @param quantile_threshold_ratio_sizes Threshold of ratio sizes to be met for clade and respective defining-homoplasies to be 
+#'    considered under multilevel selection
+#' @param quantile_threshold_ratio_persist_time As above, but for the ratio of persistence time
+#' @param quantile_threshold_logit_growth As above, but for the logistic growth rate
+#' @param threshold_keep_lower Whether to keep values that are lower (default: TRUE) than the selected quantile_threshold or higher (FALSE)
+#' @param compute_tree_annots Whether to plot segregating sites annotated in the time-scaled tree using \emph{ggtree} (default: FALSE)
+#' @param plot_global_mut_freq Whether to use \emph{outbreakinfo} package to plot mutation prevalence worldwide. Homoplasies for all target nodes 
+#'    passing filtering are plotted, not only the detected by clustering statistics (default: FALSE)
+#' @param detailed_output Plot node-specific tables summarising (major) lineages, regions and sequences. Should only be set to TRUE if
+#'    previous run of the [mlsclust()] also had this parameter set to TRUE
+#' @param desc_sisters Tips descending for each sister of the clade (default: NULL). Should only be provided if `detailed_output==TRUE`. Needs to be 
+#'    passed as a list of the returned elements 4 (tips_sisters1) and 5 (tips_sisters2) of [mlsclust()]. E.g. assuming `res` is the returned object of 
+#'    [mlsclust()] when `detailed_output==TRUE`, then this parameter should be supplied as `desc_sisters=list(res[[4]], res[[5]])`
+#' @param amd Filtered metadata matching tips in the tree (default: NULL). Should only be provided if `detailed_output==TRUE`. Passed as the 
+#'    6th element returned by [mlsclust()], e.g. `amd=res[[6]]`
 #'
-#' @return
+#' @return Invisibly returns a contingency table (data.frame) containing the defining_mut, whether it is clustered (TFP) or not, and Freq of homoplasy.
+#'    Also writes several tables to the supplied `output_dir` with: 
+#'    * raw statistic outputs,
+#'    * union and intersection of detected sites across stats, 
+#'    * homoplasies across all target nodes, only detected, and not detected, 
+#'    * homoplasies overlapping with dN/dS positively 
+#'    selected sites,
+#'    * homoplasies within a 3 amino acid sliding window, and
+#'    * different homoplasies at the exact same sites
+#'    
+#'    The main returned file used for subsequent analyses is `clustered_all_df.csv`, which contains both TFP and non-TFP homoplasies and
+#'    additional relevant columns for statistical analyses. 
 #' @export
-#'
-#' @examples
 run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_dir=paste0("mlscluster-results-",Sys.Date()), quantile_choice=1/100, quantile_threshold_ratio_sizes=1, quantile_threshold_ratio_persist_time=1, quantile_threshold_logit_growth=1, threshold_keep_lower=TRUE, compute_tree_annots=FALSE, plot_global_mut_freq=FALSE, detailed_output=FALSE, desc_sisters, amd) {
 	
 	system(glue::glue("mkdir -p {output_dir}"))
@@ -520,7 +560,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	
 	# Annotate homoplasies in: (i) S regions of potential significance
 	.annotate_s_homoplasies <- function(homopl_df) {
-		regions_s <- utils::read.csv("config/spike_regions.tsv", sep="\t", header=TRUE)
+		regions_s <- utils::read.csv(system.file("extdata", "spike_regions.tsv", package="mlscluster"),sep="\t", header=T)
 		# If has homoplasy in S
 		homopl_df$s_mut <- ifelse( grepl(homopl_df$defining_mut, pattern ='^[S]:') , "yes", "no")
 		# Get S mut coordinate only
@@ -539,7 +579,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	
 	# Annotate homoplasies in N(ucleocapsid) regions of potential significance
 	.annotate_n_homoplasies <- function(homopl_df) {
-		regions_n <- utils::read.csv("config/n_regions.tsv", sep="\t", header=TRUE)
+		regions_n <- utils::read.csv(system.file("extdata", "n_regions.tsv", package="mlscluster"),sep="\t", header=T)
 		# If has homoplasy in N
 		homopl_df$n_mut <- ifelse( grepl(homopl_df$defining_mut, pattern ='^[N]:') , "yes", "no")
 		# Get N mut coordinate only
@@ -566,7 +606,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 		homopl_df <- cbind(homopl_df, comm_coord_aadns1_df)
 		homopl_df$prot_coord_without_mut_site <- stringr::str_sub( homopl_df$defining_mut, 1, -2)
 		# Assign nodes with each prot_coord_without_mut_site
-		homopl_aadns_nodes <- homopl_df %>% dplyr::group_by(prot_coord_without_mut_site) %>% summarize(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% dplyr::ungroup()
+		homopl_aadns_nodes <- homopl_df %>% dplyr::group_by(prot_coord_without_mut_site) %>% dplyr::summarise(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% dplyr::ungroup()
 		homopl_aadns <- base::merge(homopl_df, homopl_aadns_nodes, by="prot_coord_without_mut_site")
 		homopl_aadns$mut_site <- stringr::str_sub( homopl_aadns$defining_mut, -1, -1)
 		# Filter repeated rows
@@ -586,7 +626,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	.annotate_adjacent_muts_window_s3 <- function(homopl_df) {
 		window_size <- 3
 		
-		prot_lengths <- utils::read.csv("config/aa_length_prots.tsv", sep="\t", header=TRUE)
+		prot_lengths <- utils::read.csv(system.file("extdata", "aa_length_prots.tsv", package="mlscluster"),sep="\t", header=T)
 		prot_lengths$protein <- toupper(prot_lengths$protein)
 		
 		# Create moving windows for each protein size
@@ -633,7 +673,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 		
 		homopl_df_matches <- homopl_df_merge[( (homopl_df_merge$window_pos1_match == TRUE) | (homopl_df_merge$window_pos2_match == TRUE) | (homopl_df_merge$window_pos3_match == TRUE)),]
 		
-		homopl_df_matches_nodes <- homopl_df_matches %>% dplyr::group_by(defining_mut) %>% summarize(nodes_homopl = paste0(unique(node), collapse="|"), Freq_homopl=length(unique(node))) %>% dplyr::ungroup()
+		homopl_df_matches_nodes <- homopl_df_matches %>% dplyr::group_by(defining_mut) %>% dplyr::summarise(nodes_homopl = paste0(unique(node), collapse="|"), Freq_homopl=length(unique(node))) %>% dplyr::ungroup()
 		homopl_df_matches_nodes <- homopl_df_matches_nodes[as.numeric(homopl_df_matches_nodes$Freq_homopl) > 1,]
 		
 		homopl_df_matches_neigh_mut <- homopl_df_matches %>% dplyr::inner_join(homopl_df_matches_nodes, by="defining_mut")
@@ -655,7 +695,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	# Flag know problematic sites listed here: https://github.com/W-L/ProblematicSites_SARS-CoV2
 	.remove_known_problematic_sites <- function(homopl_df) {
 		# Process problematic sites file
-		probl_sites <- utils::read.csv("config/problematic_sites_20221006.tsv", sep="\t", header=TRUE)
+		probl_sites <- utils::read.csv(system.file("extdata", "problematic_sites_20221006.tsv", package="mlscluster"),sep="\t", header=T)
 		# Split multiple potential mutated sites (separated by commas) for each site into unique row
 		probl_sites <- probl_sites %>% dplyr::mutate(aa_alt = strsplit(as.character(aa_alt), ",")) %>% tidyr::unnest(aa_alt)
 		probl_sites$aa_prot_site <- toupper( paste0(probl_sites$gene,":",probl_sites$aa_ref,probl_sites$aa_pos,probl_sites$aa_alt) )
@@ -668,7 +708,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	
 	# Return table with already described positively selected sites (https://observablehq.com/@spond/sars-cov-2-selection-countries) that should not appear here
 	.sanity_check_positively_selected_sites <- function(homopl_df) {
-		pos_sel_sites <- utils::read.csv("config/positive_selected_sites_20221006.tsv", sep="\t", header=TRUE)
+		pos_sel_sites <- utils::read.csv(system.file("extdata", "positive_selected_sites_20221006.tsv", package="mlscluster"),sep="\t", header=T)
 		pos_sel_sites$prot_site <- paste0(pos_sel_sites$protein,":",pos_sel_sites$site) 
 		
 		homopl_df$protein <- sub("\\:.*", "", homopl_df$defining_mut)
@@ -695,7 +735,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	rm(homoplasies1_all_tgt_nodes); gc()
 	homoplasies1_all_tgt_nodes_df <- stats::na.omit(homoplasies1_all_tgt_nodes_df)
 	homoplasies1_all_tgt_nodes_df <- .remove_known_problematic_sites(homoplasies1_all_tgt_nodes_df)
-	stats_df_homopl_nodes1 <- homoplasies1_all_tgt_nodes_df %>% dplyr::group_by(defining_mut) %>% summarize(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% dplyr::ungroup()
+	stats_df_homopl_nodes1 <- homoplasies1_all_tgt_nodes_df %>% dplyr::group_by(defining_mut) %>% dplyr::summarise(nodes_homopl = paste0(na.omit(node), collapse="|")) %>% dplyr::ungroup()
 	stats_df_homopl1 <- base::merge(homoplasies1_all_tgt_nodes_df, stats_df_homopl_nodes1, by="defining_mut")
 	rm(stats_df_homopl_nodes1); gc()
 	stats_df_homopl1 <- stats_df_homopl1[!duplicated(stats_df_homopl1$defining_mut),]
@@ -722,7 +762,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	homoplasies2_detect_df <- stats_df_union	%>% dplyr::left_join(homoplasies, by="node", relationship = "many-to-many")
 	homoplasies2_detect_df <- stats::na.omit(homoplasies2_detect_df)
 	homoplasies2_detect_df <- .remove_known_problematic_sites(homoplasies2_detect_df)
-	stats_df_homopl_nodes2 <- homoplasies2_detect_df %>% dplyr::group_by(defining_mut) %>% summarize(nodes_homopl = paste0(stats::na.omit(node), collapse="|")) %>% dplyr::ungroup()
+	stats_df_homopl_nodes2 <- homoplasies2_detect_df %>% dplyr::group_by(defining_mut) %>% dplyr::summarise(nodes_homopl = paste0(stats::na.omit(node), collapse="|")) %>% dplyr::ungroup()
 	stats_df_homopl2 <- base::merge(homoplasies2_detect_df, stats_df_homopl_nodes2, by="defining_mut")
 	rm(stats_df_homopl_nodes2); gc()
 	stats_df_homopl2$Freq_homopl <- NULL
@@ -790,7 +830,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	rm(homoplasies3_not_detect); gc()
 	homoplasies3_not_detect_df <- stats::na.omit(homoplasies3_not_detect_df)
 	homoplasies3_not_detect_df <- .remove_known_problematic_sites(homoplasies3_not_detect_df)
-	stats_df_homopl_nodes3 <- homoplasies3_not_detect_df %>% dplyr::group_by(defining_mut) %>% summarize(nodes_homopl = paste0(stats::na.omit(node), collapse="|")) %>% dplyr::ungroup()
+	stats_df_homopl_nodes3 <- homoplasies3_not_detect_df %>% dplyr::group_by(defining_mut) %>% dplyr::summarise(nodes_homopl = paste0(stats::na.omit(node), collapse="|")) %>% dplyr::ungroup()
 	stats_df_homopl3 <- base::merge(homoplasies3_not_detect_df, stats_df_homopl_nodes3, by="defining_mut")
 	rm(stats_df_homopl_nodes3); gc()
 	stats_df_homopl3$Freq_homopl <- NULL
@@ -818,7 +858,7 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	rm(homoplasies3_not_detect_df); gc()
 	
 	# Join friendly dfs for statistical analysis
-	prot_lengths <- utils::read.csv("config/aa_length_prots.tsv", sep="\t", header=TRUE)
+	prot_lengths <- utils::read.csv(system.file("extdata", "aa_length_prots.tsv", package="mlscluster"),sep="\t", header=T)
 	prot_lengths$protein <- toupper(prot_lengths$protein)
 	
 	if(nrow(stats_df_homopl3_freq_df) != 0) {

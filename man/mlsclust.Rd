@@ -2,7 +2,7 @@
 % Please edit documentation in R/mlsclust.R
 \name{mlsclust}
 \alias{mlsclust}
-\title{Title}
+\title{Compute statistics for sister clades in a time-scaled tree.}
 \usage{
 mlsclust(
   tre,
@@ -21,35 +21,53 @@ mlsclust(
 )
 }
 \arguments{
-\item{tre}{}
+\item{tre}{A time-scaled phylogeny in \code{ape::phylo} form, which can be estimated using treedater,
+treetime, chronumental, etc. If not rooted, an outgroup contained in the tree and its sample time
+must be provided}
 
-\item{amd}{}
+\item{amd}{A data frame containing metadata for each tip of the tree. Mandatory columns are:
+sequence_name, sample_date, lineage, major_lineage, mutations. An optional metadata is:
+region}
 
-\item{min_descendants}{}
+\item{min_descendants}{Clade must have at least this quantity of tips (integer, default: 10)}
 
-\item{max_descendants}{}
+\item{max_descendants}{Clade must have at most this quantity of tips (integer, default: 20e3)}
 
-\item{min_cluster_age_yrs}{}
+\item{min_cluster_age_yrs}{Minimum time span of clade to be included (numeric, default: 1/12)}
 
-\item{min_date}{}
+\item{min_date}{Only include samples after (and including) this date (Date object, default: NULL)}
 
-\item{max_date}{}
+\item{max_date}{Only include samples before (and including) this date (Date object, default: NULL)}
 
-\item{branch_length_unit}{}
+\item{branch_length_unit}{How branch lengths were estimated (character) \cr
+Choices are 'years' (default) or 'days' \cr
+'years' should be used for timetrees estimated using tools such as \emph{treedater} and \emph{treetime} \cr
+'days' is appropriate for timetrees estimated using \emph{chronumental}}
 
-\item{defining_mut_threshold}{}
+\item{defining_mut_threshold}{Frequency threshold to for a mutation within a clade to be
+considered a defining mutation (numeric between 0 and 1, default: 0.75)}
 
-\item{root_on_tip}{}
+\item{root_on_tip}{Will root on this tip if the input tree is still not rooted (character, default: "Wuhan/WH04/2020")}
 
-\item{root_on_tip_sample_time}{}
+\item{root_on_tip_sample_time}{Numeric time that root tip was sampled (numeric, default: 2019.995)}
 
-\item{detailed_output}{}
+\item{detailed_output}{Boolean. If TRUE, generates objects for clade-, lineage-, and region-specific
+tables and figures (default: FALSE). These objects are posteriorly used in the \code{\link[=run_diff_thresholds]{run_diff_thresholds()}} to actually
+generate the outputs}
 
-\item{ncpu}{}
+\item{ncpu}{Number of CPUs for multicore processing (integer, default: 1)}
 }
 \value{
-
+Invisibly returns a list with 3 elements:
+\itemize{
+\item the clustering statistics (data.frame),
+\item the target nodes that passed filtering (vector), and
+\item homoplasy frequency table (data.frame). If \code{detailed_output=TRUE} returns 3 additional objects useful for the
+the \code{\link[=run_diff_thresholds]{run_diff_thresholds()}} function.
+}
 }
 \description{
-Title
+Calculate three statistics for sister clades (ratio of descendant clade sizes, ratio of persistence times,
+and logistic growth rates) in huge time-scaled phylogenies. Clade-defining homoplasies are matched with these statistics
+to represent a more reliable set of potential mutations that have an advantage for replication but not for transmission.
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/mlsclust.R
 \name{run_diff_thresholds}
 \alias{run_diff_thresholds}
-\title{Title}
+\title{Extract mutations under multilevel selection for different cluster/quantile thresholds (0.25 to 25\%) of statistics}
 \usage{
 run_diff_thresholds(
   stats_df_unfilt,
@@ -22,37 +22,63 @@ run_diff_thresholds(
 )
 }
 \arguments{
-\item{stats_df_unfilt}{}
+\item{stats_df_unfilt}{First list element returned by \code{\link[=mlsclust]{mlsclust()}}. A data.frame containing node/clade, defining_muts,
+sister clades, ratio of sizes, ratio of persistence time, logistic growth rate, and if homoplasy.}
 
-\item{tgt_nodes}{}
+\item{tgt_nodes}{Second list element returned by \code{\link[=mlsclust]{mlsclust()}}. A vector with the node identifiers passing filtering criteria given by
+\code{min_descendants}, \code{max_descendants}, \code{min_cluster_age_yrs}, \code{max_date}, and \code{min_date} parameters.}
 
-\item{homoplasies}{}
+\item{homoplasies}{Third list element returned by \code{\link[=mlsclust]{mlsclust()}}. A data.frame (before matching with the quantile thresholds
+of the statistics) containing defining_mut, node, major_lineage, Freq_homopl}
 
-\item{output_dir}{}
+\item{output_dir}{Directory path where results will be saved}
 
-\item{quantile_choice}{}
+\item{quantile_choice}{Number of subsets of equal size to partition statistics. Numeric value, default is 1/100, meaning 100 splits
+(one for each 1\% of the statistics). E.g., 1, 2, 3, 4, 5, ..., 95, 96, 97, 98, 99, 100\%}
 
-\item{quantile_threshold_ratio_sizes}{}
+\item{quantile_threshold_ratio_sizes}{Threshold of ratio sizes to be met for clade and respective defining-homoplasies to be
+considered under multilevel selection}
 
-\item{quantile_threshold_ratio_persist_time}{}
+\item{quantile_threshold_ratio_persist_time}{As above, but for the ratio of persistence time}
 
-\item{quantile_threshold_logit_growth}{}
+\item{quantile_threshold_logit_growth}{As above, but for the logistic growth rate}
 
-\item{threshold_keep_lower}{}
+\item{threshold_keep_lower}{Whether to keep values that are lower (default: TRUE) than the selected quantile_threshold or higher (FALSE)}
 
-\item{compute_tree_annots}{}
+\item{compute_tree_annots}{Whether to plot segregating sites annotated in the time-scaled tree using \emph{ggtree} (default: FALSE)}
 
-\item{plot_global_mut_freq}{}
+\item{plot_global_mut_freq}{Whether to use \emph{outbreakinfo} package to plot mutation prevalence worldwide. Homoplasies for all target nodes
+passing filtering are plotted, not only the detected by clustering statistics (default: FALSE)}
 
-\item{detailed_output}{}
+\item{detailed_output}{Plot node-specific tables summarising (major) lineages, regions and sequences. Should only be set to TRUE if
+previous run of the \code{\link[=mlsclust]{mlsclust()}} also had this parameter set to TRUE}
 
-\item{desc_sisters}{}
+\item{desc_sisters}{Tips descending for each sister of the clade (default: NULL). Should only be provided if \code{detailed_output==TRUE}. Needs to be
+passed as a list of the returned elements 4 (tips_sisters1) and 5 (tips_sisters2) of \code{\link[=mlsclust]{mlsclust()}}. E.g. assuming \code{res} is the returned object of
+\code{\link[=mlsclust]{mlsclust()}} when \code{detailed_output==TRUE}, then this parameter should be supplied as \code{desc_sisters=list(res[[4]], res[[5]])}}
 
-\item{amd}{}
+\item{amd}{Filtered metadata matching tips in the tree (default: NULL). Should only be provided if \code{detailed_output==TRUE}. Passed as the
+6th element returned by \code{\link[=mlsclust]{mlsclust()}}, e.g. \code{amd=res[[6]]}}
 }
 \value{
+Invisibly returns a contingency table (data.frame) containing the defining_mut, whether it is clustered (TFP) or not, and Freq of homoplasy.
+Also writes several tables to the supplied \code{output_dir} with:
+\itemize{
+\item raw statistic outputs,
+\item union and intersection of detected sites across stats,
+\item homoplasies across all target nodes, only detected, and not detected,
+\item homoplasies overlapping with dN/dS positively
+selected sites,
+\item homoplasies within a 3 amino acid sliding window, and
+\item different homoplasies at the exact same sites
+}
 
+The main returned file used for subsequent analyses is \code{clustered_all_df.csv}, which contains both TFP and non-TFP homoplasies and
+additional relevant columns for statistical analyses.
 }
 \description{
-Title
+Detect nodes and their defining-homoplasies with the three statistics for sister clades within a small quantile
+threshold (0.25 to 25\%). This means that number of descendants, persistence time or logistic growth rate of the numerator or target
+is smaller than denominator or comparator, leading to the retrieval of a small (<1) value. This function also performs annotations by
+genomic region, different homoplasies at the same site, and within a 3-amino acid sliding window. It also provides detailed outputs if needed.
 }

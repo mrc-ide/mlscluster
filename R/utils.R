@@ -1,6 +1,10 @@
 options(scipen=999)
 
-# Remove >99% quantile threshold of Freq_homopl since these sites are clearly outliers
+#' Remove >99% quantile threshold of Freq_homopl since these sites are usually sequencing artifacts
+#'
+#' @keywords internal
+#' @export
+#' @noRd
 remove_homopl_freq_outliers <- function(path_stats)  {
 	clustered_dfs <- quant <- list()
 	for(i in 1:length(path_thresholds)) {
@@ -8,10 +12,16 @@ remove_homopl_freq_outliers <- function(path_stats)  {
 		clustered_dfs[[i]]$Freq_homopl <- as.integer(clustered_dfs[[i]]$Freq_homopl)
 		quant[[i]] <- stats::quantile(clustered_dfs[[i]]$Freq_homopl, probs=seq(0,1,1/100))
 		clustered_dfs[[i]] <- clustered_dfs[[i]][ clustered_dfs[[i]]$Freq_homopl <= unname(quant[[i]][names(quant[[i]]) == "99%"]), ]
-		print(max(clustered_dfs[[i]]$Freq_homopl))
+		#print(max(clustered_dfs[[i]]$Freq_homopl))
 	}
+	return(clustered_dfs)
 }
 
+#' Include major_lineage column if it is missing and exclude recombinants
+#'
+#' @keywords internal
+#' @export
+#' @noRd
 include_major_lineage_column <- function(md_df) {
 	md_df$major_lineage = md_df$lineage
 	md_df$major_lineage <- ifelse(grepl("^A[A-S]\\.|^AZ\\.", md_df$major_lineage), "Other", as.character(md_df$major_lineage))

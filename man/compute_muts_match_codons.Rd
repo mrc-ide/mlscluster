@@ -2,18 +2,25 @@
 % Please edit documentation in R/fdr.R
 \name{compute_muts_match_codons}
 \alias{compute_muts_match_codons}
-\title{Title}
+\title{Summarise mutation counts/percents, and extract codon positions of mutations}
 \usage{
 compute_muts_match_codons(cog_md_muts, nseqs)
 }
 \arguments{
-\item{cog_md_muts}{}
+\item{cog_md_muts}{Data.frame of mutations returned by \code{\link[=extract_muts_period]{extract_muts_period()}} (list position 1).}
 
-\item{nseqs}{}
+\item{nseqs}{Number of sequences in the database returned by \code{\link[=extract_muts_period]{extract_muts_period()}} (list position 2).}
 }
 \value{
-
+A list of 3 elements:
+\itemize{
+\item \code{cog_md_muts_syn_ranges} generates a data.frame with the respective
+genomic regions / NSPs that mutations occur with coordinates of start and end
+\item \code{codon_3rd_pos} gives 3rd codon mutations found in >100 sequences of the provided database
+\item \code{codon_1st_2nd_pos} returns the same as \code{codon_3rd_pos} but for both 1st and 2nd codon mutations
+instead of only 3rd position
+}
 }
 \description{
-Title
+Summarise mutation counts/percents, and extract codon positions of mutations
 }
