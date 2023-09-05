@@ -534,6 +534,7 @@ stats_multiple_thresholds <- function(path_stats, rm_freq_outliers=TRUE, out_fol
 		
 		clustered_dfs[[i]]$major_lineage <- ifelse(grepl("Beta_B.1.351", clustered_dfs[[i]]$major_lineage), "Other", as.character(clustered_dfs[[i]]$major_lineage))
 		clustered_dfs[[i]]$major_lineage <- ifelse(grepl("Gamma_P.1", clustered_dfs[[i]]$major_lineage), "Other", as.character(clustered_dfs[[i]]$major_lineage))
+		clustered_dfs[[i]]$major_lineage <- ifelse(grepl("\\bOmicron_BA\\.\\*\\b", clustered_dfs[[i]]$major_lineage), "Other", as.character(clustered_dfs[[i]]$major_lineage))
 		
 		joined_mut_sites_clustered[[i]] <- clustered_dfs[[i]]
 		
@@ -608,7 +609,7 @@ stats_multiple_thresholds <- function(path_stats, rm_freq_outliers=TRUE, out_fol
 	names(joined_mut_sites_clustered_syn) <- table_combs
 	names(joined_mut_sites_clustered_non_syn) <- table_combs
 	
-	print("Performing poisson regressions to see if lineages and genomic regions enriched for TFPs:")
+	message("Performing poisson regressions to see if lineages and genomic regions enriched for TFPs:")
 	
 	# Stats
 	sink(file = glue::glue("stat_results/{out_folder}/{out_poisson_file}"))
@@ -640,19 +641,19 @@ stats_multiple_thresholds <- function(path_stats, rm_freq_outliers=TRUE, out_fol
 	df_syn_clustered_homopl <- .change_ids(df_syn_clustered_homopl)
 	df_non_syn_clustered_homopl <- .change_ids(df_non_syn_clustered_homopl)
 
-	print("Genome-wide plots per genomic region:")
+	message("Genome-wide plots per genomic region:")
 	s13 <- .genomewide_plot(df_syn_clustered_homopl, mut_type="syn")
 	s9 <- .genomewide_plot(df_non_syn_clustered_homopl, mut_type="non-syn")
 
-	print("Violin plots of frequencies by lineage and genomic region:")
+	message("Violin plots of frequencies by lineage and genomic region:")
 	.violin_boxplot_freq_variations(df_syn_clustered_homopl, mut_type="syn")
 	.violin_boxplot_freq_variations(df_non_syn_clustered_homopl, mut_type="non-syn")
 
-	print("Stacked bar of unique sites under selection by lineage and genomic region:")
+	message("Stacked bar of unique sites under selection by lineage and genomic region:")
 	.stacked_bar_freqs(df_syn_clustered_homopl, mut_type="syn")
 	.stacked_bar_freqs(df_non_syn_clustered_homopl, mut_type="non-syn")
 
-	print("Tables of unique homoplasies:")
+	message("Tables of unique homoplasies:")
 	.total_amount_unique_homoplasies(df_syn_clustered_homopl, mut_type="syn")
 	.total_amount_unique_homoplasies(df_non_syn_clustered_homopl, mut_type="non-syn")
 
@@ -673,7 +674,7 @@ stats_multiple_thresholds <- function(path_stats, rm_freq_outliers=TRUE, out_fol
 	df_non_syn_clustered_homopl_counts <- df_non_syn_clustered_homopl %>% dplyr::count(period_threshold)
 
 	#distribution of freqs per genomic region
-	print("Simple distributions per genomic region:")
+	message("Simple distributions per genomic region:")
 	df_syn_clustered_homopl_reg_plots_all <- .plot_distr_freqs_spec_regions(df_syn_clustered_homopl,"syn",2,all_clust=TRUE)
 	df_non_syn_clustered_homopl_reg_plots_all <- .plot_distr_freqs_spec_regions(df_non_syn_clustered_homopl,"non-syn",2,all_clust=TRUE)
 
@@ -681,7 +682,7 @@ stats_multiple_thresholds <- function(path_stats, rm_freq_outliers=TRUE, out_fol
 	df_non_syn_clustered_homopl_reg_plots <- .plot_distr_freqs_spec_regions(df_non_syn_clustered_homopl,"non-syn",2,all_clust=FALSE)
 
 	# distribution of freqs per major_lineage
-	print("Simple distributions per major lineage:")
+	message("Simple distributions per major lineage:")
 	df_syn_clustered_homopl_lin_plots <- .plot_distr_freqs_major_lineage(df_syn_clustered_homopl,"syn",2,all_clust=FALSE)
 	df_non_syn_clustered_homopl_lin_plots <- .plot_distr_freqs_major_lineage(df_non_syn_clustered_homopl,"non-syn",2,all_clust=FALSE)
 
@@ -690,7 +691,7 @@ stats_multiple_thresholds <- function(path_stats, rm_freq_outliers=TRUE, out_fol
 	system(glue::glue("mkdir -p stat_results/{out_folder}/lower_eq5perc_syn/"))
 	system(glue::glue("mkdir -p stat_results/{out_folder}/lower_eq5perc_non_syn/"))
 
-	print("Tables splitting sites resulting from >= 10% and <=5% thresholds:")
+	message("Tables splitting sites resulting from >= 10% and <=5% thresholds:")
 	most_common_homopl_syn_period <- most_common_homopl_nonsyn_period <- list()
 	for(k in 1:length(major_lineages)) {
 		# SYN
@@ -704,14 +705,14 @@ stats_multiple_thresholds <- function(path_stats, rm_freq_outliers=TRUE, out_fol
 	}
 
 	# TOP30 by absolute frequency
-	print("Top 30 absolute frequency:")
+	message("Top 30 absolute frequency:")
 	most_common_homopl_abs_freq_syn <- .get_most_common_homopls_abs_freq(df_syn_clustered_homopl_reg_plots)
 	system(glue::glue("mkdir -p stat_results/{out_folder}/abs_freq/"))
 	utils::write.csv(most_common_homopl_abs_freq_syn, file=glue::glue("stat_results/{out_folder}/abs_freq/syn_top_muts.csv"), quote=F, row.names=F)
 	most_common_homopl_abs_freq_non_syn <- .get_most_common_homopls_abs_freq(df_non_syn_clustered_homopl_reg_plots)
 	utils::write.csv(most_common_homopl_abs_freq_non_syn, file=glue::glue("stat_results/{out_folder}/abs_freq/nonsyn_top_muts.csv"), quote=F, row.names=F)
 	
-	print("Top 30 absolute frequency within Spike:")
+	message("Top 30 absolute frequency within Spike:")
 	most_common_homopl_s_syn <- .get_most_common_homopls_s_regions(df_syn_clustered_homopl_reg_plots)
 	system(glue::glue("mkdir -p stat_results/{out_folder}/abs_freq_spike/"))
 	utils::write.csv(most_common_homopl_s_syn, file=glue::glue("stat_results/{out_folder}/abs_freq_spike/syn_top_spike_muts.csv"), quote=F, row.names=F)
@@ -723,7 +724,7 @@ stats_multiple_thresholds <- function(path_stats, rm_freq_outliers=TRUE, out_fol
 	most_common_homopl_non_syn_clust1 <- .get_most_common_homopls(df_non_syn_clustered_homopl_reg_plots_all, "non_syn_clust1",is_clustered_flag=TRUE)
 	
 	# Bubbles for is_clustered = 1
-	print("Bubble plots:")
+	message("Bubble plots:")
 	bubble_syn_clust1 <- .bubble_plots(most_common_homopl_syn_clust1,"syn","syn_clust1")
 	bubble_non_syn_clust1 <- .bubble_plots(most_common_homopl_non_syn_clust1, "non-syn", "non-syn_clust1")
 	

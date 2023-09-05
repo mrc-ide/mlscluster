@@ -7,15 +7,16 @@ Authors@R:
     person("Erik", "Volz", email="erik.volz@gmail.com", role = c("aut"),
            comment = c(ORCID = "0000-0001-6268-8937")))
 Description: mlscluster is an algorithm that computes three statistics (ratio of descendant clade sizes, ratio of persistence times, and logistic growth rates) 
-    for sister clades in huge time-scaled phylogenies. Clade-defining homoplasies (or transmission fitness polymorphisms [TFPs]) are matched with these statistics and 
-    results for different cluster thresholds are produced. Therefore, this method highlights mutations which likely present different selective pressures within and 
-    between hosts (multilevel selection). This package contains functions to (i) compute the multilevel selectives pressures across thresholds, (ii) perform statistical 
-    analysis and graphical visualisation for all thresholds to identify lineages and genomic regions enriched for TFPs, (iii) quantify the false discovery rate for 
-    each threshold, (iv) generate multiple lineage and gene-specific plots of TFPs for the threshold selected by the user.
+    for sister clades in huge time-scaled phylogenies. Clade-defining homoplasies are matched with these statistics and results for different cluster thresholds are produced. 
+    Therefore, this method highlights mutations (or transmission fitness polymorphisms [TFPs]) which likely present different selective pressures within and between hosts 
+    (multilevel selection). This package contains functions to (i) compute the multilevel selectives pressures across thresholds, (ii) perform statistical analysis and graphical 
+    visualisation for all thresholds to identify lineages and genomic regions enriched for TFPs, (iii) quantify the false discovery rate for each threshold, (iv) generate 
+    multiple lineage and gene-specific plots of TFPs for the threshold selected by the user.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.1.2
+Depends: R(>= 3.5.0)
 Imports: 
     ape,
     data.table,

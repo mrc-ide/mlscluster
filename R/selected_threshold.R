@@ -227,6 +227,7 @@ stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_inde
 	
 	clustered_df$major_lineage <- ifelse(grepl("Beta_B.1.351", clustered_df$major_lineage), "Other", as.character(clustered_df$major_lineage))
 	clustered_df$major_lineage <- ifelse(grepl("Gamma_P.1", clustered_df$major_lineage), "Other", as.character(clustered_df$major_lineage))
+	clustered_df$major_lineage <- ifelse(grepl("\\bOmicron_BA\\.\\*\\b", clustered_df$major_lineage), "Other", as.character(clustered_df$major_lineage))
 	
 	joined_mut_sites_clustered <- clustered_df
 	
@@ -307,16 +308,16 @@ stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_inde
 	df_syn_clustered_homopl$threshold <- THRESHOLD_INTEREST
 	df_non_syn_clustered_homopl$threshold <- THRESHOLD_INTEREST
 	
-	print("Genome-wide plots per genomic region:")
+	message("Genome-wide plots per genomic region:")
 	.genomewide_plot(df_syn_clustered_homopl, mut_type="syn")
 	gp_ns <- .genomewide_plot(df_non_syn_clustered_homopl, mut_type="non-syn")
 
-	print("Stacked bar of unique sites under selection by lineage and genomic region:")
+	message("Stacked bar of unique sites under selection by lineage and genomic region:")
 	sbf_s <- .stacked_bar_freqs(df_syn_clustered_homopl, mut_type="syn")
 	sbf_ns <- .stacked_bar_freqs(df_non_syn_clustered_homopl, mut_type="non-syn")
 
 	# Top30 and 100 by absolute frequency
-	print("Top30 and 100 regardless of genomic region:")
+	message("Top30 and 100 regardless of genomic region:")
 	most_common_homopl_abs_freq_syn <- .get_most_common_homopls_abs_freq(df_syn_clustered_homopl)
 	system(glue::glue("mkdir -p stat_results/{out_folder}/abs_freq/"))
 	utils::write.csv(most_common_homopl_abs_freq_syn[[1]], file=glue::glue("stat_results/{out_folder}/abs_freq/syn_top30_muts.csv"), quote=F, row.names=F)
@@ -326,13 +327,13 @@ stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_inde
 	utils::write.csv(most_common_homopl_abs_freq_non_syn[[2]], file=glue::glue("stat_results/{out_folder}/abs_freq/nonsyn_top100_muts.csv"), quote=F, row.names=F)
 
 	# Top30 spike
-	print("Top30 on Spike:")
+	message("Top30 on Spike:")
 	most_common_homopl_s_non_syn <- .get_most_common_homopls_s_regions(df_non_syn_clustered_homopl)
 	system(glue::glue("mkdir -p stat_results/{out_folder}/abs_freq_s/"))
 	utils::write.csv(most_common_homopl_s_non_syn, file=glue::glue("stat_results/{out_folder}/abs_freq_s/nonsyn_top_muts_spike.csv"), quote=F, row.names=F)
 
 	# Bubbles for is_clustered = 1
-	print("Bubble plots:")
+	message("Bubble plots:")
 	bubble_syn_clust1 <- .bubble_plots(most_common_homopl_abs_freq_syn[[1]],"syn","syn_clust1")
 	bubble_non_syn_clust1 <- .bubble_plots(most_common_homopl_abs_freq_non_syn[[1]], "non-syn", "non-syn_clust1")
 	

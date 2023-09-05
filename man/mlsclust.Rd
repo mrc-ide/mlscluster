@@ -26,8 +26,10 @@ treetime, chronumental, etc. If not rooted, an outgroup contained in the tree an
 must be provided}
 
 \item{amd}{A data frame containing metadata for each tip of the tree. Mandatory columns are:
-sequence_name, sample_date, lineage, major_lineage, mutations. An optional metadata is:
-region}
+sequence_name, sample_date, lineage, major_lineage, mutations. Mutations must be amino acid replacements separated by the
+pipe "|" character. E.g. "orf1ab:Q676H|synSNP:C3037T|orf1ab:T3750I|synSNP:C13168T|orf1ab:P4715L|synSNP:C18877T|
+synSNP:C22444T|S:D614G|S:V1068F|ORF3a:Q57H|synSNP:C26735T|synSNP:C27059T|N:S194L"
+An optional metadata column is: region}
 
 \item{min_descendants}{Clade must have at least this quantity of tips (integer, default: 10)}
 

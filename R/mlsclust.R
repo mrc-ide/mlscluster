@@ -8,8 +8,10 @@
 #'     treetime, chronumental, etc. If not rooted, an outgroup contained in the tree and its sample time
 #'     must be provided
 #' @param amd A data frame containing metadata for each tip of the tree. Mandatory columns are: 
-#'     sequence_name, sample_date, lineage, major_lineage, mutations. An optional metadata is:
-#'     region
+#'     sequence_name, sample_date, lineage, major_lineage, mutations. Mutations must be amino acid replacements separated by the 
+#'     pipe "|" character. E.g. "orf1ab:Q676H|synSNP:C3037T|orf1ab:T3750I|synSNP:C13168T|orf1ab:P4715L|synSNP:C18877T|
+#'     synSNP:C22444T|S:D614G|S:V1068F|ORF3a:Q57H|synSNP:C26735T|synSNP:C27059T|N:S194L"
+#'     An optional metadata column is: region
 #' @param min_descendants Clade must have at least this quantity of tips (integer, default: 10)
 #' @param max_descendants Clade must have at most this quantity of tips (integer, default: 20e3)
 #' @param min_cluster_age_yrs Minimum time span of clade to be included (numeric, default: 1/12)
