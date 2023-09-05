@@ -35,12 +35,12 @@ devtools::install_github('vinibfranc/mlscluster')
 
 See the [SARS-CoV-2 computational experiments from our paper](https://github.com/vinibfranc/mlscluster-experiments) for examples of how to use *mlscluster*.
 
-Functions have a help page if you need guidance of how to run them. For example, within R you can try: 
+If you need guidance on how to run some functions, see their help pages. For example, within R you can try: 
 
 ```
 help(mlsclust)
 ```
 
-## Maintainance
+## Maintenance
 
 The package currently support SARS-CoV-2 analyses only. Further support for other pathogens, especially HIV, is planned. This involves adding genomic coordinates and specific sanity checks for known sequencing artifacts of each pathogen. Watch this space for future releases or contact us if you are interested in such applications.
