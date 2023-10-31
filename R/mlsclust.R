@@ -21,6 +21,10 @@
 #'     Choices are 'years' (default) or 'days' \cr
 #'     'years' should be used for timetrees estimated using tools such as \emph{treedater} and \emph{treetime} \cr
 #'     'days' is appropriate for timetrees estimated using \emph{chronumental}
+#' @param rm_seq_artifacts Remove sequencing artifacts based on X (non-syn) and N (SYN) annotations of missing sites from the 
+#'     'mutations' metadata column. Default is TRUE and we highly recommend keeping this option. Only change to FALSE if you
+#'     have extremely high-quality sequencing (e.g. without ambiguous and missing calls in the alignment used to build the time-
+#'     scaled tree) 
 #' @param defining_mut_threshold Frequency threshold to for a mutation within a clade to be
 #'     considered a defining mutation (numeric between 0 and 1, default: 0.75)
 #' @param root_on_tip Will root on this tip if the input tree is still not rooted (character, default: "Wuhan/WH04/2020")
@@ -40,7 +44,7 @@
 #'    * homoplasy frequency table (data.frame). If `detailed_output=TRUE` returns 3 additional objects useful for the
 #'    the [run_diff_thresholds()] function.
 #' @export
-mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=NULL, max_date=NULL, branch_length_unit="years", defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, detailed_output=FALSE, ncpu=1) {
+mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_cluster_age_yrs=1/12, min_date=NULL, max_date=NULL, branch_length_unit="years", rm_seq_artifacts=TRUE, defining_mut_threshold=0.75, root_on_tip="Wuhan/WH04/2020", root_on_tip_sample_time=2019.995, detailed_output=FALSE, ncpu=1) {
 	
 	class(tre) <- "phylo"
 	
@@ -301,10 +305,90 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 		if( nrow(md_itn) == 0 | nrow(md_its) == 0 )
 			return(NA)
 		
-		vtab_node = sort( table( do.call( c, strsplit( md_itn[[mut_var]], split='\\|' )  ) ) / nrow( md_itn ) )
-		vtab_sister = sort( table( do.call( c, strsplit( md_its[[mut_var]], split='\\|' )  ) ) / nrow( md_its ) )
-		defining_muts <- base::setdiff( names(vtab_node[vtab_node > defining_mut_threshold]), names(vtab_sister[vtab_sister > defining_mut_threshold]) )
-		defining_muts
+		if(rm_seq_artifacts) {
+			# Table and df of clade mutations and their freqs
+			vtab_node_freqs <- sort( table( do.call( c, strsplit( md_itn[[mut_var]], split='\\|' )  ) ) / nrow( md_itn ) )
+			vtab_node_freqs <- as.data.frame(vtab_node_freqs)
+			colnames(vtab_node_freqs) <- c("defining_mut","Freq")
+			vtab_node_freqs$prot <- sub("\\:.*", "", vtab_node_freqs$defining_mut)
+			vtab_node_freqs$site <- sub('.*:', "", vtab_node_freqs$defining_mut)
+			vtab_node_freqs$site <- parse_number(vtab_node_freqs$site)
+			vtab_node_freqs$prot_site <- paste0(vtab_node_freqs$prot,":",vtab_node_freqs$site)
+			vtab_node_freqs$prot_anc_site <- str_sub(vtab_node_freqs$defining_mut, start=1, end=-2)
+			vtab_node_freqs$mutsite <- str_sub(vtab_node_freqs$defining_mut, -1)
+			
+			# Table and df of sister mutations and their freqs
+			vtab_sister_freqs <- sort( table( do.call( c, strsplit( md_its[[mut_var]], split='\\|' )  ) ) / nrow( md_its ) )
+			vtab_sister_freqs <- as.data.frame(vtab_sister_freqs)
+			colnames(vtab_sister_freqs) <- c("defining_mut","Freq")
+			vtab_sister_freqs$prot <- sub("\\:.*", "", vtab_sister_freqs$defining_mut)
+			vtab_sister_freqs$site <- sub('.*:', "", vtab_sister_freqs$defining_mut)
+			vtab_sister_freqs$site <- parse_number(vtab_sister_freqs$site)
+			vtab_sister_freqs$prot_site <- paste0(vtab_sister_freqs$prot,":",vtab_sister_freqs$site)
+			vtab_sister_freqs$prot_anc_site <- str_sub(vtab_sister_freqs$defining_mut, start=1, end=-2)
+			vtab_sister_freqs$mutsite <- str_sub(vtab_sister_freqs$defining_mut, -1)
+			
+			# Get common sites between node and sister that can be changed if X/N missing sites
+			df_common_sites <- vtab_node_freqs %>% dplyr::left_join(vtab_sister_freqs, by="prot_site", multiple="all") #left_join
+			df_common_sites <- df_common_sites[!is.na(df_common_sites$mutsite.y),]
+			#print("df_common_sites")
+			#print(df_common_sites) # IMPORTANT: this only get 4 first possibilities
+			
+			# Get SYN sites with N in node and other char in sister
+			df_common_sites_syn <- df_common_sites[(df_common_sites$prot.x == "SYNSNP" & df_common_sites$mutsite.x == "N")|(df_common_sites$prot.x == "SYNSNP" & df_common_sites$mutsite.y == "N"),]
+			df_common_sites_syn <- df_common_sites_syn[(df_common_sites_syn$mutsite.x != df_common_sites_syn$mutsite.y)|(df_common_sites_syn$mutsite.y != df_common_sites_syn$mutsite.x),]
+			# Get NON-SYN sites with X in node and other char in sister
+			df_common_sites_nonsyn <- df_common_sites[(df_common_sites$prot.x != "SYNSNP" & df_common_sites$mutsite.x == "X")|(df_common_sites$prot.x != "SYNSNP" & df_common_sites$mutsite.y == "X"),]
+			df_common_sites_nonsyn <- df_common_sites_nonsyn[(df_common_sites_nonsyn$mutsite.x != df_common_sites_nonsyn$mutsite.y)|(df_common_sites_nonsyn$mutsite.y != df_common_sites_nonsyn$mutsite.x),]
+			#print(df_common_sites_nonsyn) # IMPORTANT: this only gets 1 possibility (no 1, X in node and N in sister)
+			# Non-N / non-X adjusted based on node/sister without missing mutation
+			df_common_sites_syn$final_mut <- ifelse(df_common_sites_syn$mutsite.x == "N", yes=as.character(df_common_sites_syn$mutsite.y), no=as.character(df_common_sites_syn$mutsite.x))
+			df_common_sites_syn$defining_mut_final <- paste0(df_common_sites_syn$prot_anc_site.x, df_common_sites_syn$final_mut)
+			
+			df_common_sites_nonsyn$final_mut <- ifelse(df_common_sites_nonsyn$mutsite.x == "X", yes=as.character(df_common_sites_nonsyn$mutsite.y), no=as.character(df_common_sites_nonsyn$mutsite.x))
+			df_common_sites_nonsyn$defining_mut_final <- paste0(df_common_sites_nonsyn$prot_anc_site.x, df_common_sites_nonsyn$final_mut)
+			
+			# Fixed SYN and NON-SYN sites
+			fixed_sites_node <- rbind(df_common_sites_syn, df_common_sites_nonsyn) #bind_rows
+			# Fixed sites matching with node mutations
+			match_fixed_node <- fixed_sites_node %>% left_join(vtab_node_freqs, by=c("defining_mut_final"="defining_mut"))
+			match_fixed_node <- match_fixed_node[!is.na(match_fixed_node$mutsite),]
+			match_fixed_node$prot_anc_site <- str_sub(match_fixed_node$defining_mut_final, start=1, end=-2)
+			match_fixed_node$mutsite <- str_sub(match_fixed_node$defining_mut_final, -1)
+			# Fix proportion of adjusted muts on node
+			match_fixed_node_prop <- match_fixed_node %>% group_by(prot_anc_site) %>% mutate(Freq_adj=sum(Freq.x, Freq.y)) %>% ungroup()
+			# If >100%, maximum is 1
+			match_fixed_node_prop$Freq_adj <- ifelse(match_fixed_node_prop$Freq_adj>1, 1, as.numeric(match_fixed_node_prop$Freq_adj))
+			match_fixed_node_prop <- match_fixed_node_prop %>% select(defining_mut_final, Freq_adj)
+			colnames(match_fixed_node_prop) <- c("defining_mut","Freq")
+			vtab_node_freqs <- vtab_node_freqs %>% select(defining_mut, Freq)
+
+			all_node_muts <- dplyr::setdiff(vtab_node_freqs, match_fixed_node_prop)
+			all_node_muts <- all_node_muts[!duplicated(all_node_muts$defining_mut), ]
+			#print("all_node_muts AFTER removing dups") # IMPORTANT: this still includes X (probably because not considering no 3 from notebook)
+			#print(all_node_muts)
+			all_node_muts <- all_node_muts[all_node_muts$Freq > defining_mut_threshold,]
+			
+			defining_mut_df <- setDT(all_node_muts)[!vtab_sister_freqs, on = "defining_mut"] #all_sister_muts
+			defining_mut_df$mutsite <- str_sub(defining_mut_df$defining_mut, -1)
+			defining_mut_df$prot <- sub("\\:.*", "", defining_mut_df$defining_mut)
+			defining_mut_df <- as.data.frame(defining_mut_df)
+			defining_mut_df$defining_mut <- as.character(defining_mut_df$defining_mut)
+			
+			# Removes X/N muts not found in both (opts 6 & 8)
+			defining_mut_df1 <- defining_mut_df[(defining_mut_df$prot != "SYNSNP" & defining_mut_df$mutsite != "X"),]
+			defining_mut_df2 <- defining_mut_df[(defining_mut_df$prot == "SYNSNP" & defining_mut_df$mutsite != "N"),]
+			defining_mut_df <- rbind(defining_mut_df1, defining_mut_df2)
+			defining_muts <- unname(defining_mut_df$defining_mut)
+			
+			return(defining_muts)
+		} else {
+			vtab_node = sort( table( do.call( c, strsplit( md_itn[[mut_var]], split='\\|' )  ) ) / nrow( md_itn ) )
+			vtab_sister = sort( table( do.call( c, strsplit( md_its[[mut_var]], split='\\|' )  ) ) / nrow( md_its ) )
+			defining_muts <- base::setdiff( names(vtab_node[vtab_node > defining_mut_threshold]), names(vtab_sister[vtab_sister > defining_mut_threshold]) )
+			return(defining_muts)
+		}
+		
 	}
 	
 	# Detect independent occurences of defining mutations (homoplasies) across different nodes

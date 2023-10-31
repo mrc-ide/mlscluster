@@ -114,11 +114,11 @@ fdr_mlsclust <- function(path_stats, cog_md_muts_syn_ranges, codon_3rd_pos, codo
 	clustered_dfs <- clustered_dfs_syn <- first_codon_threshold <- sec_codon_threshold <- third_codon_threshold <- first_sec_codon_threshold <- fdr <- epsilon <- list()
 	fdr_regions <- epsilon_regions <- matrix(list(),nrow=length(thr), ncol=length(unique(cog_md_muts_syn_ranges$genomic_region)))
 	#print(dim(fdr_regions))
-	clustered_dfs <- remove_homopl_freq_outliers(path_stats)
+	# clustered_dfs <- remove_homopl_freq_outliers(path_stats)
 	
 	print("Calculating overall and gene-specific FDR and epsilon:")
 	for(i in 1:length(path_thresholds)) {
-		#clustered_dfs[[i]] <- utils::read.csv(glue::glue("{path_stats}/{path_thresholds[i]}/clustered_all_df.csv"), header=T)
+		clustered_dfs[[i]] <- utils::read.csv(glue::glue("{path_stats}/{path_thresholds[i]}/clustered_all_df.csv"), header=T)
 		print("threshold")
 		print(thr[i])
 		clustered_dfs[[i]]$syn <- ifelse(clustered_dfs[[i]]$syn == as.character("syn"), 1, 0)

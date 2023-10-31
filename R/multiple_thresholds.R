@@ -523,10 +523,10 @@ stats_multiple_thresholds <- function(path_stats, rm_freq_outliers=TRUE, out_fol
 		clustered_dfs[[i]] <- utils::read.csv(glue::glue("{path_stats}/{path_thresholds[i]}/clustered_all_df.csv"), header=T)
 	}
 	
-	# If flag to remove 99% quantile frequency outliers is TRUE, then remove
-	if(rm_freq_outliers) {
-		clustered_dfs <- remove_homopl_freq_outliers(path_stats)
-	}
+	# # If flag to remove 99% quantile frequency outliers is TRUE, then remove
+	# if(rm_freq_outliers) {
+	# 	clustered_dfs <- remove_homopl_freq_outliers(path_stats)
+	# }
 	
 	for(i in 1:length(path_thresholds)) {
 		

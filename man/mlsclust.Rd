@@ -13,6 +13,7 @@ mlsclust(
   min_date = NULL,
   max_date = NULL,
   branch_length_unit = "years",
+  rm_seq_artifacts = TRUE,
   defining_mut_threshold = 0.75,
   root_on_tip = "Wuhan/WH04/2020",
   root_on_tip_sample_time = 2019.995,
@@ -45,6 +46,11 @@ An optional metadata column is: region}
 Choices are 'years' (default) or 'days' \cr
 'years' should be used for timetrees estimated using tools such as \emph{treedater} and \emph{treetime} \cr
 'days' is appropriate for timetrees estimated using \emph{chronumental}}
+
+\item{rm_seq_artifacts}{Remove sequencing artifacts based on X (non-syn) and N (SYN) annotations of missing sites from the
+'mutations' metadata column. Default is TRUE and we highly recommend keeping this option. Only change to FALSE if you
+have extremely high-quality sequencing (e.g. without ambiguous and missing calls in the alignment used to build the time-
+scaled tree)}
 
 \item{defining_mut_threshold}{Frequency threshold to for a mutation within a clade to be
 considered a defining mutation (numeric between 0 and 1, default: 0.75)}

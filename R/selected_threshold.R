@@ -217,10 +217,10 @@ stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_inde
 	csv_cp <- thr2 <- list()
 	
 	clustered_df <- utils::read.csv(glue::glue("{path_stats}/{path_thresholds[1]}/clustered_all_df.csv"), header=T)
-	# If flag to remove 99% quantile frequency outliers is TRUE, then remove
-	if(rm_freq_outliers) {
-		clustered_df <- remove_homopl_freq_outliers(path_stats)
-	}
+	# # If flag to remove 99% quantile frequency outliers is TRUE, then remove
+	# if(rm_freq_outliers) {
+	# 	clustered_df <- remove_homopl_freq_outliers(path_stats)
+	# }
 	clustered_df <- clustered_df[[thr_index]]
 	
 	clustered_df <- clustered_df[clustered_df$is_clustered==1,]
