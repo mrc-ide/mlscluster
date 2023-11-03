@@ -36,7 +36,7 @@
 #' 
 #' @importFrom ggtree %<+%
 #' @importFrom magrittr %>%
-#' @importFrom data.table := .N
+#' @importFrom data.table := .N .SD
 #'
 #' @return Invisibly returns a list with 3 elements: 
 #'    * the clustering statistics (data.frame), 
@@ -237,12 +237,12 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	
 	
 	# ratio sizes function
-	.ratio_sizes_stat <- function(node) {
-		comp_res <- .get_comparison_sister_node(node)
+	.ratio_sizes_stat <- function(node_tips, sister_tips) {
+		#comp_res <- .get_comparison_sister_node(node)
 		length_sisters <- rep(1,2)
-		if(!is.null(comp_res)) {
-			length_sisters[1] <- length(comp_res[[5]])
-			length_sisters[2] <- length(comp_res[[6]])
+		if(!is.null(node_tips) & !is.null(sister_tips)) {
+			length_sisters[1] <- length(node_tips) #length(comp_res[[5]])
+			length_sisters[2] <- length(sister_tips) #length(comp_res[[6]])
 		}else {
 			length_sisters <- c(-1, -1)
 		}
@@ -253,48 +253,93 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	}
 	
 	# ratio persistence time function
-	.ratio_persist_time_stat <- function(node) {
-		comp_res <- .get_comparison_sister_node(node)
+	.ratio_persist_time_stat <- function(node_id, sister_id) {
+		#comp_res <- .get_comparison_sister_node(node)
 		persist_time <- rep(0,2)
 		max_persist_time <- rep(0,2)
 		
-		if(!is.null(comp_res)) {
-			persist_time[1] <- persistence_time[ node ]
-			persist_time[2] <- max( persistence_time[ comp_res[[2]] ])
-			max_persist_time[1] <- max_desc_time[ node ]
-			max_persist_time[2] <- max( max_desc_time[ comp_res[[2]] ])
+		if(!is.null(node_id) & !is.null(sister_id)) {
+			persist_time[1] <- persistence_time[ node_id ]
+			persist_time[2] <- max( persistence_time[ sister_id ])
+			max_persist_time[1] <- max_desc_time[ node_id ]
+			max_persist_time[2] <- max( max_desc_time[ sister_id ])
 		}else {
 			persist_time <- c(-1, -1)
 			max_persist_time <- c(-1, -1)
 		}
 		
 		ratio_persist_time <- round( persist_time[1] / persist_time[2], digits=5)
-		res_ratio_persist_time <- c(tmrca[node], max_persist_time, ratio_persist_time)
+		res_ratio_persist_time <- c(tmrca[node_id], max_persist_time, ratio_persist_time)
 		
 		return(res_ratio_persist_time)
 	}
 	
 	# logistic growth of sister clades function
-	.logistic_growth_stat <- function(node) {
+	.logistic_growth_stat <- function(node_tips, sister_tips, node_times, sister_times, sister_id) {
 		lg_res_list <- list()
-		comp_res <- .get_comparison_sister_node(node)
+		#comp_res <- .get_comparison_sister_node(node)
 		
-		if(!is.null(comp_res)) {
-			X <- data.frame(sequence_name=c(comp_res[[5]], comp_res[[6]]), time=c(comp_res[[7]], comp_res[[8]]), type=c(rep("node",length(comp_res[[5]])), rep("control",length(comp_res[[6]]))))
+		if(!is.null(node_tips) & !is.null(sister_tips)) {
+			X <- data.frame(sequence_name=c(node_tips, sister_tips), time=c(node_times, sister_times), type=c(rep("node",length(node_tips)), rep("control",length(sister_tips))))
 			X <- stats::na.omit(X)
 			model <- suppressWarnings( stats::glm(type=="node" ~ time, data=X, family=stats::binomial(link="logit")) )
 			s <- summary(model)
 			rel_growth <- unname(stats::coef(model)[2]) # * gen_time
 			p <- s$coefficients[2,4]
-			lg_res_list <- cbind(rel_growth, p, comp_res[[2]])
+			lg_res_list <- cbind(rel_growth, p, sister_id)
 		}else {
 			lg_res_list <- cbind(-1, -1, -1)
 		}
 		return(lg_res_list)
 	}
 	
+	.tab_freqs <- function(md_node, mut_var="mutations") {
+		vtab_freqs <- sort( table( do.call( c, strsplit( md_node[[mut_var]], split='\\|' )  ) ) / nrow( md_node ) )
+		vtab_freqs <- as.data.frame(vtab_freqs)
+		colnames(vtab_freqs) <- c("defining_mut","Freq")
+		vtab_freqs$prot <- sub("\\:.*", "", vtab_freqs$defining_mut)
+		#vtab_freqs$site <- sub('.*:', "", vtab_freqs$defining_mut)
+		#vtab_freqs$site <- readr::parse_number(vtab_freqs$site, na="X")
+		#vtab_freqs$prot_site <- paste0(vtab_freqs$prot,":",vtab_freqs$site)
+		vtab_freqs$prot_anc_site <- stringr::str_sub(vtab_freqs$defining_mut, start=1, end=-2)
+		vtab_freqs$mutsite <- stringr::str_sub(vtab_freqs$defining_mut, -1)
+		#vtab_freqs <- vtab_freqs[!is.na(vtab_freqs$site),]
+		vtab_freqs <- vtab_freqs[!is.na(vtab_freqs$prot),]
+		return(vtab_freqs)
+	}
+	
+	valid_aas <- c("A","R","N","D","C","E","Q","G","H","I","L","K","M","F","P","S","T","W","Y","V","*")
+	valid_nts <- c("A","T","C","G")
+	
+	.fix_sites <- function(tab_freq) {
+		# Adjust freq of muts based on proportion of major mutated site in node (e.g. if has S:K417 N=0.8, X=0.1, T=0.1, than S:K417 N=0.9 -> sum N+X; if has S:E484 K=0.2 and X=0.8, than S:E484 X=1)
+		
+		# SYN
+		tab_freq <- data.table::as.data.table(tab_freq)
+		syn_adj <- tab_freq[prot == "SYNSNP", ][order(prot_anc_site, -Freq)][, row_n := data.table::rowid(prot_anc_site)][,
+																						status := data.table::fcase(row_n == 1 & mutsite %in% valid_nts, "valid nt first",
+																																						row_n == 1 & mutsite == "N", "N first", default = ""), by = prot_anc_site][,
+																						Freq := data.table::fcase(status == "valid nt first", sum(Freq[status == "valid nt first"]) + sum(Freq[mutsite == "N"]),
+																																				status == "N first", sum(Freq[status == "N first"]) + sum(Freq[row_n == 2])), by = prot_anc_site][,
+																						head(.SD, 1), by = prot_anc_site]
+		
+		# NON-SYN
+		nonsyn_adj <- tab_freq[prot != "SYNSNP"][order(prot_anc_site, -Freq)][, row_n := data.table::rowid(prot_anc_site)][,
+																									status := data.table::fcase(row_n == 1 & mutsite %in% valid_aas, "valid aa first",
+																																									row_n == 1 & mutsite == "X", "X first", default = ""), by = prot_anc_site][,
+																									Freq := data.table::fcase(status == "valid aa first", sum(Freq[status == "valid aa first"]) + sum(Freq[mutsite == "X"]),
+																																							status == "X first", sum(Freq[status == "X first"]) + sum(Freq[row_n == 2])), by = prot_anc_site][,
+																									head(.SD, 1), by = prot_anc_site]
+		
+		adj_muts <- base::rbind(syn_adj, nonsyn_adj)
+		adj_muts <- as.data.frame(adj_muts)
+		
+		adj_muts <- adj_muts[adj_muts$Freq > defining_mut_threshold,]
+		return(adj_muts)
+	}
+	
 	# Extract node defining muts
-	.node_muts <- function(node, mut_var="mutations") {
+	.node_muts <- function(node) { #, mut_var="mutations",node_tips, sister_tips
 		comp_res <- .get_comparison_sister_node(node)
 		
 		# metadata from node/clade sequences
@@ -306,80 +351,31 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 			return(NA)
 		
 		if(rm_seq_artifacts) {
-			# Table and df of clade mutations and their freqs
-			vtab_node_freqs <- sort( table( do.call( c, strsplit( md_itn[[mut_var]], split='\\|' )  ) ) / nrow( md_itn ) )
-			vtab_node_freqs <- as.data.frame(vtab_node_freqs)
-			colnames(vtab_node_freqs) <- c("defining_mut","Freq")
-			vtab_node_freqs$prot <- sub("\\:.*", "", vtab_node_freqs$defining_mut)
-			vtab_node_freqs$site <- sub('.*:', "", vtab_node_freqs$defining_mut)
-			vtab_node_freqs$site <- parse_number(vtab_node_freqs$site)
-			vtab_node_freqs$prot_site <- paste0(vtab_node_freqs$prot,":",vtab_node_freqs$site)
-			vtab_node_freqs$prot_anc_site <- str_sub(vtab_node_freqs$defining_mut, start=1, end=-2)
-			vtab_node_freqs$mutsite <- str_sub(vtab_node_freqs$defining_mut, -1)
+			vtab_node_freqs <- .tab_freqs(md_itn)
+			vtab_sister_freqs <- .tab_freqs(md_its)
 			
-			# Table and df of sister mutations and their freqs
-			vtab_sister_freqs <- sort( table( do.call( c, strsplit( md_its[[mut_var]], split='\\|' )  ) ) / nrow( md_its ) )
-			vtab_sister_freqs <- as.data.frame(vtab_sister_freqs)
-			colnames(vtab_sister_freqs) <- c("defining_mut","Freq")
-			vtab_sister_freqs$prot <- sub("\\:.*", "", vtab_sister_freqs$defining_mut)
-			vtab_sister_freqs$site <- sub('.*:', "", vtab_sister_freqs$defining_mut)
-			vtab_sister_freqs$site <- parse_number(vtab_sister_freqs$site)
-			vtab_sister_freqs$prot_site <- paste0(vtab_sister_freqs$prot,":",vtab_sister_freqs$site)
-			vtab_sister_freqs$prot_anc_site <- str_sub(vtab_sister_freqs$defining_mut, start=1, end=-2)
-			vtab_sister_freqs$mutsite <- str_sub(vtab_sister_freqs$defining_mut, -1)
+			all_node_muts <- .fix_sites(vtab_node_freqs)
+			all_sister_muts <- .fix_sites(vtab_sister_freqs)
 			
-			# Get common sites between node and sister that can be changed if X/N missing sites
-			df_common_sites <- vtab_node_freqs %>% dplyr::left_join(vtab_sister_freqs, by="prot_site", multiple="all") #left_join
-			df_common_sites <- df_common_sites[!is.na(df_common_sites$mutsite.y),]
-			#print("df_common_sites")
-			#print(df_common_sites) # IMPORTANT: this only get 4 first possibilities
+			all_node_muts$node <- "node"
+			all_sister_muts$node <- "sister"
 			
-			# Get SYN sites with N in node and other char in sister
-			df_common_sites_syn <- df_common_sites[(df_common_sites$prot.x == "SYNSNP" & df_common_sites$mutsite.x == "N")|(df_common_sites$prot.x == "SYNSNP" & df_common_sites$mutsite.y == "N"),]
-			df_common_sites_syn <- df_common_sites_syn[(df_common_sites_syn$mutsite.x != df_common_sites_syn$mutsite.y)|(df_common_sites_syn$mutsite.y != df_common_sites_syn$mutsite.x),]
-			# Get NON-SYN sites with X in node and other char in sister
-			df_common_sites_nonsyn <- df_common_sites[(df_common_sites$prot.x != "SYNSNP" & df_common_sites$mutsite.x == "X")|(df_common_sites$prot.x != "SYNSNP" & df_common_sites$mutsite.y == "X"),]
-			df_common_sites_nonsyn <- df_common_sites_nonsyn[(df_common_sites_nonsyn$mutsite.x != df_common_sites_nonsyn$mutsite.y)|(df_common_sites_nonsyn$mutsite.y != df_common_sites_nonsyn$mutsite.x),]
-			#print(df_common_sites_nonsyn) # IMPORTANT: this only gets 1 possibility (no 1, X in node and N in sister)
-			# Non-N / non-X adjusted based on node/sister without missing mutation
-			df_common_sites_syn$final_mut <- ifelse(df_common_sites_syn$mutsite.x == "N", yes=as.character(df_common_sites_syn$mutsite.y), no=as.character(df_common_sites_syn$mutsite.x))
-			df_common_sites_syn$defining_mut_final <- paste0(df_common_sites_syn$prot_anc_site.x, df_common_sites_syn$final_mut)
+			# Exclude sites that have node majority as non-X and sister majority as X (probably artifacts as well)
+			all_node_muts_syn_excl <- all_node_muts %>% dplyr::inner_join(all_sister_muts, by="prot_anc_site") %>% dplyr::filter(prot.x == "SYNSNP") %>% dplyr::filter(node.x=="node" & status.x=="valid nt first" & node.y=="sister" & status.y=="N first")
+			all_node_muts_non_syn_excl <- all_node_muts %>% dplyr::inner_join(all_sister_muts, by="prot_anc_site") %>% dplyr::filter(prot.x != "SYNSNP") %>%  dplyr::filter(node.x=="node" & status.x=="valid aa first" & node.y=="sister" & status.y=="X first")
+			all_node_muts_rm <- base::rbind(all_node_muts_syn_excl, all_node_muts_non_syn_excl)
+			all_node_muts_rm <- all_node_muts_rm %>% dplyr::select(defining_mut.x, Freq.x, prot.x, prot_anc_site, status.x) #site.x, prot_site.x,
+			colnames(all_node_muts_rm) <- c("defining_mut","Freq","prot","prot_anc_site","status") #"site","prot_site"
 			
-			df_common_sites_nonsyn$final_mut <- ifelse(df_common_sites_nonsyn$mutsite.x == "X", yes=as.character(df_common_sites_nonsyn$mutsite.y), no=as.character(df_common_sites_nonsyn$mutsite.x))
-			df_common_sites_nonsyn$defining_mut_final <- paste0(df_common_sites_nonsyn$prot_anc_site.x, df_common_sites_nonsyn$final_mut)
+			# Defining muts of nodes that were not flagged to remove above
+			all_node_muts <- data.table::setDT(all_node_muts)[!all_node_muts_rm, on = "defining_mut"]
 			
-			# Fixed SYN and NON-SYN sites
-			fixed_sites_node <- rbind(df_common_sites_syn, df_common_sites_nonsyn) #bind_rows
-			# Fixed sites matching with node mutations
-			match_fixed_node <- fixed_sites_node %>% left_join(vtab_node_freqs, by=c("defining_mut_final"="defining_mut"))
-			match_fixed_node <- match_fixed_node[!is.na(match_fixed_node$mutsite),]
-			match_fixed_node$prot_anc_site <- str_sub(match_fixed_node$defining_mut_final, start=1, end=-2)
-			match_fixed_node$mutsite <- str_sub(match_fixed_node$defining_mut_final, -1)
-			# Fix proportion of adjusted muts on node
-			match_fixed_node_prop <- match_fixed_node %>% group_by(prot_anc_site) %>% mutate(Freq_adj=sum(Freq.x, Freq.y)) %>% ungroup()
-			# If >100%, maximum is 1
-			match_fixed_node_prop$Freq_adj <- ifelse(match_fixed_node_prop$Freq_adj>1, 1, as.numeric(match_fixed_node_prop$Freq_adj))
-			match_fixed_node_prop <- match_fixed_node_prop %>% select(defining_mut_final, Freq_adj)
-			colnames(match_fixed_node_prop) <- c("defining_mut","Freq")
-			vtab_node_freqs <- vtab_node_freqs %>% select(defining_mut, Freq)
-
-			all_node_muts <- dplyr::setdiff(vtab_node_freqs, match_fixed_node_prop)
-			all_node_muts <- all_node_muts[!duplicated(all_node_muts$defining_mut), ]
-			#print("all_node_muts AFTER removing dups") # IMPORTANT: this still includes X (probably because not considering no 3 from notebook)
-			#print(all_node_muts)
-			all_node_muts <- all_node_muts[all_node_muts$Freq > defining_mut_threshold,]
+			# Defining muts of node (not found in sister)
+			defining_mut_df <- data.table::setDT(all_node_muts)[!all_sister_muts, on = "defining_mut"] #vtab_sister_freqs
+			# Remove SYN Ns and NON-SYN Xs
+			defining_mut_df <- defining_mut_df[(defining_mut_df$prot == "SYNSNP" & defining_mut_df$mutsite != "N") | (defining_mut_df$prot != "SYNSNP" & defining_mut_df$mutsite != "X"),]
 			
-			defining_mut_df <- setDT(all_node_muts)[!vtab_sister_freqs, on = "defining_mut"] #all_sister_muts
-			defining_mut_df$mutsite <- str_sub(defining_mut_df$defining_mut, -1)
-			defining_mut_df$prot <- sub("\\:.*", "", defining_mut_df$defining_mut)
-			defining_mut_df <- as.data.frame(defining_mut_df)
-			defining_mut_df$defining_mut <- as.character(defining_mut_df$defining_mut)
-			
-			# Removes X/N muts not found in both (opts 6 & 8)
-			defining_mut_df1 <- defining_mut_df[(defining_mut_df$prot != "SYNSNP" & defining_mut_df$mutsite != "X"),]
-			defining_mut_df2 <- defining_mut_df[(defining_mut_df$prot == "SYNSNP" & defining_mut_df$mutsite != "N"),]
-			defining_mut_df <- rbind(defining_mut_df1, defining_mut_df2)
-			defining_muts <- unname(defining_mut_df$defining_mut)
+			defining_muts <- unname(as.character(defining_mut_df$defining_mut))
 			
 			return(defining_muts)
 		} else {
@@ -478,12 +474,14 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 		if(tgt_nodes[n] %in% report_nodes) {
 			message(glue::glue("Progress: {round(100 * n / length(tgt_nodes))}%"))
 		}
-		sisters <- .get_comparison_sister_node(tgt_nodes[n])[[1]]
+		comp <- .get_comparison_sister_node(tgt_nodes[n])
+		#sisters <- .get_comparison_sister_node(tgt_nodes[n])[[1]]
+		sisters <- comp[[1]]
 		if(!is.null(sisters)) {
-			st0 <- .node_muts(tgt_nodes[n])
-			st1 <- .ratio_sizes_stat(tgt_nodes[n])
-			st2 <- .ratio_persist_time_stat(tgt_nodes[n])
-			st3 <- .logistic_growth_stat(tgt_nodes[n])
+			st0 <- .node_muts(tgt_nodes[n]) #.node_muts(tgt_nodes[n])
+			st1 <- .ratio_sizes_stat(comp[[5]], comp[[6]]) #.ratio_sizes_stat(tgt_nodes[n])
+			st2 <- .ratio_persist_time_stat(tgt_nodes[n], comp[[2]]) #.ratio_persist_time_stat(tgt_nodes[n])
+			st3 <- .logistic_growth_stat(comp[[5]], comp[[6]], comp[[7]], comp[[8]], comp[[2]]) #.logistic_growth_stat(tgt_nodes[n])
 			st4 <- ""
 			if(tgt_nodes[n] %in% homoplasies$node) {
 				st4 <- "yes"
@@ -815,8 +813,6 @@ run_diff_thresholds <- function(stats_df_unfilt, tgt_nodes, homoplasies, output_
 	
 	# Homoplasies (all target nodes considered)
 	homoplasies1_all_tgt_nodes <- data.frame(tgt_nodes); colnames(homoplasies1_all_tgt_nodes) <- c("node")
-	#View(homoplasies1_all_tgt_nodes)
-	#View(homoplasies[[1]])
 	homoplasies1_all_tgt_nodes_df <- base::merge(homoplasies1_all_tgt_nodes, homoplasies, by="node", all.x=TRUE, all.y=FALSE)
 	rm(homoplasies1_all_tgt_nodes); gc()
 	homoplasies1_all_tgt_nodes_df <- stats::na.omit(homoplasies1_all_tgt_nodes_df)
