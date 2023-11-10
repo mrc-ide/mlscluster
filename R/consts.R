@@ -9,8 +9,8 @@ options(scipen=999)
 # Palette for thresholds
 pal_thresholds <- c("0.25"="#1984c5", "0.5"="#22a7f0", "0.75"="#63bff0", "1"="#a7d5ed", "2"="#cbfeff", "3"="#ffcccb", "4"="#e1a692", "5"="#de6e56", "10"="#e14b31", "25"="#c23728") # removed e2e2e2
 
-# Palette for major_lineages
-pal_lineages <- c("Alpha_B.1.1.7"="#fd7f6f", "Delta_AY.4.*"="#7eb0d5", "Delta_other"="#b2e061", "EU1_B.1.177"="#bd7ebe", "Omicron_BA.1.*"="#ffb55a", "Omicron_BA.2.*"="#ffcc00", "Other"="#fdcce5")
+# # Palette for major_lineages
+# pal_lineages <- c("Alpha_B.1.1.7"="#fd7f6f", "Delta_AY.4.*"="#7eb0d5", "Delta_other"="#b2e061", "EU1_B.1.177"="#bd7ebe", "Omicron_BA.1.*"="#ffb55a", "Omicron_BA.2.*"="#ffcc00", "Other"="#fdcce5")
 
 syn_p <- "SYNSNP:"
 # Factors levels for syn mutations

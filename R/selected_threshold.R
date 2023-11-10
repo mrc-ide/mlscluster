@@ -4,6 +4,7 @@
 #' @param thr_index Index of the cluster/quantile threshold selected for targeted analysis.
 #'    The default thresholds are: 0.25, 0.5, 0.75, 1, 2, 3, 4, 5, 10, and 25%.
 #'    Therefore, the `thr_index` for threshold 2% is 5 (default).
+#' @param pal_lineages Customisable palette to use for major_lineage plots. Specified as c("lineage_label"="#color", ...)
 #' @param out_folder Output folder which will be appended to `stat_results/` in the working directory 
 #'    to generate results for the selected threshold. Should be different from the folder specified at
 #'    [stats_multiple_thresholds()] to avoid overriding results.
@@ -18,7 +19,7 @@
 #'    (multilevel selection) and a dN/dS HyPhy approach (positive selection), and 
 #'    (ii) a bubble plot of TFP-homoplasy frequencies stratified by major lineage
 #' @export
-stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_index=5, out_folder) {
+stats_selected_threshold <- function(path_stats, thr_index=5, pal_lineages = c("Alpha_B.1.1.7"="#fd7f6f", "Delta_AY.4.*"="#7eb0d5", "Delta_other"="#b2e061", "EU1_B.1.177"="#bd7ebe", "Omicron_BA.1.*"="#ffb55a", "Omicron_BA.2.*"="#ffcc00", "Other"="#fdcce5"), out_folder) {
 	
 	if(dir.exists(path_stats))
 		path <- path_stats
@@ -27,6 +28,7 @@ stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_inde
 	
 	.genomewide_plot <- function(df, mut_type) {
 		
+		p4 <- list()
 		if(mut_type == "syn") {
 			genomic_ranges_df <- utils::read.csv(system.file("extdata", "genomic_ranges_plot_syn.tsv", package="mlscluster"),sep="\t", header=T)
 			# No split for SYN
@@ -46,6 +48,8 @@ stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_inde
 				ggplot2::coord_cartesian(xlim = c(0, 29903), ylim = c(2,10)) + ggplot2::scale_y_discrete(breaks=seq(2,10,by=1))
 			ggplot2::ggsave(glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/syn_freqs_major_lineage.png"), plot=p2, width=15, height=5, dpi=600, bg="white")
 			
+			return(p2)
+			
 		}else if(mut_type == "non-syn") {
 			
 			genomic_ranges_df <- utils::read.csv(system.file("extdata", "genomic_ranges_plot_non_syn.tsv", package="mlscluster"),sep="\t", header=T)
@@ -63,24 +67,27 @@ stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_inde
 				
 				utils::write.csv(df_freq_genomic_regions_split_nonsyn_first_t[[i]], glue::glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/nonsyn_freqs_1st_threshold_{unique(df_freq_genomic_regions_split_nonsyn_first[[i]]$protein)}.csv"), quote=F, row.names=F)
 				
-				p4 <- ggplot2::ggplot(df_freq_genomic_regions_split_nonsyn_first[[i]], ggplot2::aes(x=genomic_index, y=Freq_homopl, color=major_lineage)) +
-					ggplot2::geom_point(alpha=0.9) + ggplot2::labs(x="Aminoacid position", y="Frequency in TFP clusters") + ggplot2::theme_minimal() +
+				df_freq_genomic_regions_split_nonsyn_first[[i]]$site <- sub('.*:', "", df_freq_genomic_regions_split_nonsyn_first[[i]]$defining_mut)
+				
+				p4[[i]] <- ggplot2::ggplot(df_freq_genomic_regions_split_nonsyn_first[[i]], ggplot2::aes(x=genomic_index, y=Freq_homopl, color=major_lineage)) +
+					ggplot2::geom_point(alpha=0.9) + ggplot2::labs(x=glue::glue("Aminoacid position within {unique(df_freq_genomic_regions_split_nonsyn_first[[i]]$protein)}"), y="Frequency in TFP clusters") + ggplot2::theme_minimal() +
 					ggplot2::scale_color_manual(values=pal_lineages, name="Major lineage") +
-					ggrepel::geom_text_repel(ggplot2::aes(label = ifelse(Freq_homopl>2,as.character(defining_mut),'')), size=2, box.padding   = 0.35, point.padding = 0.5, segment.color = 'grey50', max.overlaps=15)+
+					ggrepel::geom_text_repel(ggplot2::aes(label = ifelse(Freq_homopl>2,as.character(site),'')), size=2, box.padding   = 0.35, point.padding = 0.5, segment.color = 'grey50', max.overlaps=15)+
 					ggplot2::coord_cartesian(xlim = c(df_freq_genomic_regions_split_nonsyn_first[[i]]$start[1], df_freq_genomic_regions_split_nonsyn_first[[i]]$end[1]))
-				ggplot2::ggsave(glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/nonsyn_freqs_major_lineage_{unique(df_freq_genomic_regions_split_nonsyn_first[[i]]$protein)}.png"), plot=p4, width=15, height=5, dpi=600, bg="white")
+				ggplot2::ggsave(glue("stat_results/{out_folder}/genomewide_plot_{mut_type}/nonsyn_freqs_major_lineage_{unique(df_freq_genomic_regions_split_nonsyn_first[[i]]$protein)}.png"), plot=p4[[i]], width=15, height=5, dpi=600, bg="white")
 				
 			}
+			return(p4)
 		} else {
 			stop("Wrong choice of mut_type: options are `syn` and `non-syn`")
 		}
 		
-		if(exists("p2")){
-			return(p2)
-		}
-		if(exists("p4")) {
-			return(p4)
-		}
+		# if(exists("p2")){
+		# 	return(p2)
+		# }
+		# if(exists("p4")) {
+		# 	return(p4)
+		# }
 		
 	}
 	
@@ -104,14 +111,14 @@ stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_inde
 		
 		p1 <- ggplot2::ggplot(df_freq_genomic_regions_first_counts, ggplot2::aes(fill=major_lineage, y=spec_regions, x=count_uniq_homopls)) + 
 			ggplot2::geom_bar(position="stack", stat="identity") + ggplot2::scale_fill_manual(values=pal_lineages, name="Major lineage") + ggplot2::theme_minimal() + ggplot2::theme(axis.text = ggplot2::element_text(size=6,color="black"), axis.title=ggplot2::element_text(size=7,color="black")) +
-			ggplot2::labs(x="Count of unique homoplasies", y="Genomic region")
+			ggplot2::labs(x="Count of unique TFP-homoplasies", y="Genomic region")
 		ggplot2::ggsave(glue::glue("stat_results/{out_folder}/stacked_bar_uniq_counts_{mut_type}/stacked_bar_uniq_counts.png"), width=8, height=6, dpi=600, bg="white")
 		
 		df_freq_genomic_regions_first_counts_norm <- df_freq_genomic_regions_first %>% dplyr::group_by(spec_regions, major_lineage) %>% dplyr::summarise(count_uniq_homopls_norm=sum(Freq_norm))
 		
 		p2 <- ggplot2::ggplot(df_freq_genomic_regions_first_counts_norm, ggplot2::aes(fill=major_lineage, y=spec_regions, x=count_uniq_homopls_norm)) + 
 			ggplot2::geom_bar(position="stack", stat="identity") + ggplot2::scale_fill_manual(values=pal_lineages, name="Major lineage") + ggplot2::theme_minimal() + ggplot2::theme(axis.text = ggplot2::element_text(size=6,color="black"), axis.title=ggplot2::element_text(size=7,color="black")) +
-			ggplot2::labs(x="Normalized count of unique homoplasies", y="Genomic region")
+			ggplot2::labs(x="Normalised count of unique TFP-homoplasies", y="Genomic region")
 		ggplot2::ggsave(glue::glue("stat_results/{out_folder}/stacked_bar_uniq_counts_{mut_type}/stacked_bar_uniq_counts_norm.png"), width=8, height=6, dpi=600, bg="white")
 		return(list(p1, p2))
 	}
@@ -216,13 +223,7 @@ stats_selected_threshold <- function(path_stats, rm_freq_outliers=TRUE, thr_inde
 	joined_mut_sites_clustered <- joined_mut_sites_clustered_syn <- joined_mut_sites_clustered_non_syn <- list()
 	csv_cp <- thr2 <- list()
 	
-	clustered_df <- utils::read.csv(glue::glue("{path_stats}/{path_thresholds[1]}/clustered_all_df.csv"), header=T)
-	# # If flag to remove 99% quantile frequency outliers is TRUE, then remove
-	# if(rm_freq_outliers) {
-	# 	clustered_df <- remove_homopl_freq_outliers(path_stats)
-	# }
-	clustered_df <- clustered_df[[thr_index]]
-	
+	clustered_df <- utils::read.csv(glue::glue("{path_stats}/{path_thresholds[thr_index]}/clustered_all_df.csv"), header=T)
 	clustered_df <- clustered_df[clustered_df$is_clustered==1,]
 	
 	clustered_df$major_lineage <- ifelse(grepl("Beta_B.1.351", clustered_df$major_lineage), "Other", as.character(clustered_df$major_lineage))
