@@ -28,7 +28,7 @@ Vinicius B. Franceschi & Erik M. Volz.
 In R, install the `devtools` package and run:
 
 ```
-devtools::install_github('vinibfranc/mlscluster')
+devtools::install_github('mrc-ide/mlscluster')
 ```
 
 ## Documentation
