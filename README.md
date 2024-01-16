@@ -1,5 +1,7 @@
 # mlscluster
 
+[![DOI](https://zenodo.org/badge/518473195.svg)](https://zenodo.org/doi/10.5281/zenodo.10520061)
+
 **[m]ulti[l]evel [s]election [cluster]ing**: tree-based variant fitness clustering algorithm
 
 *mlscluster* is an algorithm that computes three statistics (ratio of descendant 
