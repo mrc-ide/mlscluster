@@ -21,9 +21,7 @@ and genomic regions enriched for TFPs;
 For a complete description of the statistical methods incorporated into this
 package, see our paper:
 
-**Phylogenetic signatures reveal multilevel selection and fitness costs in SARS-CoV-2**. 
-Vinicius B. Franceschi & Erik M. Volz. 
-[...]
+Bonetti Franceschi, V., & Volz, E. (2024). Phylogenetic signatures reveal multilevel selection and fitness costs in SARS-CoV-2. Wellcome Open Research, 9, 85. [https://doi.org/10.12688/wellcomeopenres.20704.1](https://doi.org/10.12688/wellcomeopenres.20704.1)
 
 ## Installation
 

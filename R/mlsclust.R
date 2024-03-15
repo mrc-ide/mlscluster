@@ -339,7 +339,7 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 	}
 	
 	# Extract node defining muts
-	.node_muts <- function(node) { #, mut_var="mutations",node_tips, sister_tips
+	.node_muts <- function(node) {
 		comp_res <- .get_comparison_sister_node(node)
 		
 		# metadata from node/clade sequences
@@ -379,8 +379,8 @@ mlsclust <- function(tre, amd, min_descendants=10, max_descendants=20e3, min_clu
 			
 			return(defining_muts)
 		} else {
-			vtab_node = sort( table( do.call( c, strsplit( md_itn[[mut_var]], split='\\|' )  ) ) / nrow( md_itn ) )
-			vtab_sister = sort( table( do.call( c, strsplit( md_its[[mut_var]], split='\\|' )  ) ) / nrow( md_its ) )
+			vtab_node = sort( table( do.call( c, strsplit( md_itn$mutations, split='\\|' )  ) ) / nrow( md_itn ) )
+			vtab_sister = sort( table( do.call( c, strsplit( md_its$mutations, split='\\|' )  ) ) / nrow( md_its ) )
 			defining_muts <- base::setdiff( names(vtab_node[vtab_node > defining_mut_threshold]), names(vtab_sister[vtab_sister > defining_mut_threshold]) )
 			return(defining_muts)
 		}
